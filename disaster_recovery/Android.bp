@@ -1,0 +1,14 @@
+// ========================================================
+// Executable
+// ========================================================
+cc_binary {
+    name: "flags_health_check",
+    srcs: ["disaster_recovery.cc"],
+    shared_libs: [
+        "libbase",
+        "server_configurable_flags",
+    ],
+    cflags: [
+        "-Werror",
+    ],
+}
