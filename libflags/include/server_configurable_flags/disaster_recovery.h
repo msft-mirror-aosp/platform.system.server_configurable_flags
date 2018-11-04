@@ -18,9 +18,6 @@
 
 namespace server_configurable_flags {
 
-// Mark the boot as success from Server Configurable Flags' perspective.
-void ServerConfigurableFlagsMarkBoot();
-
 // Check failed reboot count, if it exceeds the threshold, server configurable
 // flags will be reset.
 void ServerConfigurableFlagsReset();

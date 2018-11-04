@@ -54,14 +54,6 @@ TEST(server_configurable_flags, invalid_flag_returns_default) {
   ASSERT_EQ("default", result);
 }
 
-TEST(server_configurable_flags, mark_boot_clears_fail_count_property) {
-  android::base::SetProperty("persist.device_config.attempted_boot_count", "1");
-  server_configurable_flags::ServerConfigurableFlagsMarkBoot();
-
-  std::string actual = android::base::GetProperty("persist.device_config.attempted_boot_count", "");
-  ASSERT_EQ("", actual);
-}
-
 TEST(server_configurable_flags, flags_reset_skip_under_threshold) {
   android::base::SetProperty("persist.device_config.attempted_boot_count", "1");
   android::base::SetProperty("persist.device_config.category1.prop1", "val1");

@@ -51,15 +51,13 @@ static void ResetFlag(const char* key, const char* value, void* /* cookie */) {
   }
 }
 
-void ServerConfigurableFlagsMarkBoot() {
-  LOG(INFO) << __FUNCTION__ << " mark boot as success from server configurable flag perspective.";
-  android::base::SetProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, "");
-}
-
 void ServerConfigurableFlagsReset() {
   int fail_count = android::base::GetIntProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, 0);
   if (fail_count < ATTEMPTED_BOOT_COUNT_THRESHOLD) {
     LOG(INFO) << __FUNCTION__ << " attempted boot count is under threshold, skipping reset.";
+
+    // ATTEMPTED_BOOT_COUNT_PROPERTY will be reset to 0 when sys.boot_completed is set to 1.
+    // The code lives in flags_health_check.rc.
     android::base::SetProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, std::to_string(fail_count + 1));
   } else {
     LOG(INFO) << __FUNCTION__ << " attempted boot count reaches threshold, resetting flags.";
