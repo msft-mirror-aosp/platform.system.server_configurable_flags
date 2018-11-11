@@ -19,12 +19,20 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <string>
+#include <vector>
 
+#include "android-base/file.h"
 #include "android-base/properties.h"
+#include "android-base/strings.h"
 
 using namespace server_configurable_flags;
 using namespace android::base;
+
+static bool contains(std::vector<std::string>& vec, std::string& str) {
+  return std::find(vec.begin(), vec.end(), str) != vec.end();
+}
 
 TEST(server_configurable_flags, empty_flag_returns_default) {
   std::string result =
@@ -60,6 +68,7 @@ TEST(server_configurable_flags, flags_reset_skip_under_threshold) {
   android::base::SetProperty("persist.device_config.category1.prop2", "val2");
   android::base::SetProperty("persist.device_config.category2.prop3", "val3");
   android::base::SetProperty("sys.category3.test", "val4");
+  android::base::SetProperty("device_config.reset_performed", "");
 
   server_configurable_flags::ServerConfigurableFlagsReset();
 
@@ -68,6 +77,7 @@ TEST(server_configurable_flags, flags_reset_skip_under_threshold) {
   ASSERT_EQ("val2", android::base::GetProperty("persist.device_config.category1.prop2", ""));
   ASSERT_EQ("val3", android::base::GetProperty("persist.device_config.category2.prop3", ""));
   ASSERT_EQ("val4", android::base::GetProperty("sys.category3.test", ""));
+  ASSERT_EQ("", android::base::GetProperty("device_config.reset_performed", ""));
 }
 
 TEST(server_configurable_flags, flags_reset_performed_over_threshold) {
@@ -79,9 +89,21 @@ TEST(server_configurable_flags, flags_reset_performed_over_threshold) {
 
   server_configurable_flags::ServerConfigurableFlagsReset();
 
-  ASSERT_EQ("", android::base::GetProperty("persist.device_config.attempted_boot_count", ""));
+  ASSERT_EQ("true", android::base::GetProperty("device_config.reset_performed", ""));
+  ASSERT_EQ("5", android::base::GetProperty("persist.device_config.attempted_boot_count", ""));
   ASSERT_EQ("", android::base::GetProperty("persist.device_config.category1.prop1", ""));
   ASSERT_EQ("", android::base::GetProperty("persist.device_config.category1.prop2", ""));
   ASSERT_EQ("", android::base::GetProperty("persist.device_config.category2.prop3", ""));
   ASSERT_EQ("val4", android::base::GetProperty("sys.category3.test", ""));
+
+  std::string content;
+  ASSERT_EQ(true, ReadFileToString("/data/server_configurable_flags/reset_flags", &content));
+  std::vector<std::string> properties = Split(content, ";");
+  ASSERT_EQ((unsigned long)3, properties.size());
+  std::string prop1("persist.device_config.category1.prop1"),
+      prop2("persist.device_config.category1.prop2"),
+      prop3("persist.device_config.category2.prop3");
+  ASSERT_EQ(true, contains(properties, prop1));
+  ASSERT_EQ(true, contains(properties, prop2));
+  ASSERT_EQ(true, contains(properties, prop3));
 }

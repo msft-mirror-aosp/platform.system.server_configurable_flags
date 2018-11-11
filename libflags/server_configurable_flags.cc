@@ -21,13 +21,19 @@
 #include <regex>
 #include <string>
 
+#include "android-base/file.h"
 #include "android-base/logging.h"
 #include "android-base/properties.h"
 #include "android-base/strings.h"
+#include "android-base/unique_fd.h"
 
 #define SYSTEM_PROPERTY_PREFIX "persist.device_config."
 
 #define ATTEMPTED_BOOT_COUNT_PROPERTY "persist.device_config.attempted_boot_count"
+
+#define RESET_PERFORMED_PROPERTY "device_config.reset_performed"
+
+#define RESET_FLAGS_FILE_PATH "/data/server_configurable_flags/reset_flags"
 
 #define ATTEMPTED_BOOT_COUNT_THRESHOLD 4
 
@@ -45,9 +51,16 @@ static bool ValidateExperimentSegment(const std::string& segment) {
          segment.find(".") != segment.size() - 1;
 }
 
-static void ResetFlag(const char* key, const char* value, void* /* cookie */) {
-  if (android::base::StartsWith(key, SYSTEM_PROPERTY_PREFIX) && strlen(value) > 0) {
+static void ResetFlag(const char* key, const char* value, void* cookie) {
+  if (strcmp(ATTEMPTED_BOOT_COUNT_PROPERTY, key) &&
+      android::base::StartsWith(key, SYSTEM_PROPERTY_PREFIX) && strlen(value) > 0) {
+    std::string* reset_flags = static_cast<std::string*>(cookie);
     android::base::SetProperty(key, "");
+    if (reset_flags->length() > 0) {
+      reset_flags->append(";");
+    }
+    reset_flags->append(key);
+    android::base::SetProperty(RESET_PERFORMED_PROPERTY, "true");
   }
 }
 
@@ -61,7 +74,19 @@ void ServerConfigurableFlagsReset() {
     android::base::SetProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, std::to_string(fail_count + 1));
   } else {
     LOG(INFO) << __FUNCTION__ << " attempted boot count reaches threshold, resetting flags.";
-    property_list(ResetFlag, nullptr);
+    std::string reset_flags;
+    property_list(ResetFlag, &reset_flags);
+    if (reset_flags.length() > 0) {
+      android::base::unique_fd fd(
+          TEMP_FAILURE_RETRY(open(RESET_FLAGS_FILE_PATH, O_RDWR | O_CREAT | O_TRUNC, 0666)));
+      if (fd == -1) {
+        LOG(INFO) << __FUNCTION__ << " failed to open file " << RESET_FLAGS_FILE_PATH;
+      } else if (!WriteStringToFd(reset_flags, fd)) {
+        LOG(INFO) << __FUNCTION__ << " failed to write file " << RESET_FLAGS_FILE_PATH;
+      } else {
+        LOG(INFO) << __FUNCTION__ << " successfully write to file " << RESET_FLAGS_FILE_PATH;
+      }
+    }
   }
 }
 
