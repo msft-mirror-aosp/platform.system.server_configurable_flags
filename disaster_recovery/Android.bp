@@ -3,6 +3,7 @@
 // ========================================================
 cc_binary {
     name: "flags_health_check",
+    host_supported: true,
     srcs: ["disaster_recovery.cc"],
     shared_libs: [
         "libbase",

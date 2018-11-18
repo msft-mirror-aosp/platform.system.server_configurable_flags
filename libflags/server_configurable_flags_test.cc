@@ -81,6 +81,7 @@ TEST(server_configurable_flags, flags_reset_skip_under_threshold) {
 }
 
 TEST(server_configurable_flags, flags_reset_performed_over_threshold) {
+#if defined(__BIONIC__)
   android::base::SetProperty("persist.device_config.attempted_boot_count", "5");
   android::base::SetProperty("persist.device_config.category1.prop1", "val1");
   android::base::SetProperty("persist.device_config.category1.prop2", "val2");
@@ -106,4 +107,7 @@ TEST(server_configurable_flags, flags_reset_performed_over_threshold) {
   ASSERT_EQ(true, contains(properties, prop1));
   ASSERT_EQ(true, contains(properties, prop2));
   ASSERT_EQ(true, contains(properties, prop3));
+#else   // __BIONIC__
+  GTEST_LOG_(INFO) << "This test does nothing.\n";
+#endif  // __BIONIC__
 }

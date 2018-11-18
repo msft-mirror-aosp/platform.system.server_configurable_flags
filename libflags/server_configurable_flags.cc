@@ -17,7 +17,9 @@
 #include "server_configurable_flags/disaster_recovery.h"
 #include "server_configurable_flags/get_flags.h"
 
+#if defined(__BIONIC__)
 #include <cutils/properties.h>
+#endif  // __BIONIC__
 #include <regex>
 #include <string>
 
@@ -51,6 +53,7 @@ static bool ValidateExperimentSegment(const std::string& segment) {
          segment.find(".") != segment.size() - 1;
 }
 
+#if defined(__BIONIC__)
 static void ResetFlag(const char* key, const char* value, void* cookie) {
   if (strcmp(ATTEMPTED_BOOT_COUNT_PROPERTY, key) &&
       android::base::StartsWith(key, SYSTEM_PROPERTY_PREFIX) && strlen(value) > 0) {
@@ -63,8 +66,10 @@ static void ResetFlag(const char* key, const char* value, void* cookie) {
     android::base::SetProperty(RESET_PERFORMED_PROPERTY, "true");
   }
 }
+#endif  // __BIONIC__
 
 void ServerConfigurableFlagsReset() {
+#if defined(__BIONIC__)
   int fail_count = android::base::GetIntProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, 0);
   if (fail_count < ATTEMPTED_BOOT_COUNT_THRESHOLD) {
     LOG(INFO) << __FUNCTION__ << " attempted boot count is under threshold, skipping reset.";
@@ -76,6 +81,7 @@ void ServerConfigurableFlagsReset() {
     LOG(INFO) << __FUNCTION__ << " attempted boot count reaches threshold, resetting flags.";
     std::string reset_flags;
     property_list(ResetFlag, &reset_flags);
+
     if (reset_flags.length() > 0) {
       android::base::unique_fd fd(
           TEMP_FAILURE_RETRY(open(RESET_FLAGS_FILE_PATH, O_RDWR | O_CREAT | O_TRUNC, 0666)));
@@ -88,6 +94,9 @@ void ServerConfigurableFlagsReset() {
       }
     }
   }
+#else
+  LOG(ERROR) << __FUNCTION__ << " ServerConfigurableFlagsReset is not available for this build.";
+#endif  // __BIONIC__
 }
 
 std::string GetServerConfigurableFlags(const std::string& experiment_category_name,
