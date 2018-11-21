@@ -23,8 +23,10 @@ namespace server_configurable_flags {
 // Use the category name and flag name registered in SettingsToPropertiesMapper.java
 // to query the experiment flag value. This method will return default_value if
 // querying fails.
-std::string GetServerConfigurableFlags(const std::string& experiment_category_name,
-                                       const std::string& experiment_flag_name,
-                                       const std::string& default_value);
+// Note that for flags from Settings.Global, experiment_category_name should
+// always be global_settings.
+std::string GetServerConfigurableFlag(const std::string& experiment_category_name,
+                                      const std::string& experiment_flag_name,
+                                      const std::string& default_value);
 
 }  // namespace server_configurable_flags

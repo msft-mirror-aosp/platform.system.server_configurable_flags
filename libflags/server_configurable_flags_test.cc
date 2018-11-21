@@ -36,14 +36,14 @@ static bool contains(std::vector<std::string>& vec, std::string& str) {
 
 TEST(server_configurable_flags, empty_flag_returns_default) {
   std::string result =
-      server_configurable_flags::GetServerConfigurableFlags("category", "flag", "default");
+      server_configurable_flags::GetServerConfigurableFlag("category", "flag", "default");
   ASSERT_EQ("default", result);
 }
 
 TEST(server_configurable_flags, set_flag_returns_value) {
   android::base::SetProperty("persist.device_config.category.flag", "hello");
   std::string result =
-      server_configurable_flags::GetServerConfigurableFlags("category", "flag", "default");
+      server_configurable_flags::GetServerConfigurableFlag("category", "flag", "default");
   ASSERT_EQ("hello", result);
 
   // clean up
@@ -52,13 +52,13 @@ TEST(server_configurable_flags, set_flag_returns_value) {
 
 TEST(server_configurable_flags, invalid_flag_returns_default) {
   std::string result =
-      server_configurable_flags::GetServerConfigurableFlags("category.", "flag", "default");
+      server_configurable_flags::GetServerConfigurableFlag("category.", "flag", "default");
   ASSERT_EQ("default", result);
 
-  result = server_configurable_flags::GetServerConfigurableFlags("category", "!flag", "default");
+  result = server_configurable_flags::GetServerConfigurableFlag("category", "!flag", "default");
   ASSERT_EQ("default", result);
 
-  result = server_configurable_flags::GetServerConfigurableFlags("category", ".flag", "default");
+  result = server_configurable_flags::GetServerConfigurableFlag("category", ".flag", "default");
   ASSERT_EQ("default", result);
 }
 

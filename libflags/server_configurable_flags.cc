@@ -99,9 +99,9 @@ void ServerConfigurableFlagsReset() {
 #endif  // __BIONIC__
 }
 
-std::string GetServerConfigurableFlags(const std::string& experiment_category_name,
-                                       const std::string& experiment_flag_name,
-                                       const std::string& default_value) {
+std::string GetServerConfigurableFlag(const std::string& experiment_category_name,
+                                      const std::string& experiment_flag_name,
+                                      const std::string& default_value) {
   if (!ValidateExperimentSegment(experiment_category_name)) {
     LOG(ERROR) << __FUNCTION__ << " invalid category name " << experiment_category_name;
     return default_value;
