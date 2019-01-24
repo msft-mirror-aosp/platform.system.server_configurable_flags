@@ -18,8 +18,10 @@
 
 namespace server_configurable_flags {
 
+enum ResetMode { BOOT_FAILURE, UPDATABLE_CRASHING };
+
 // Check failed reboot count, if it exceeds the threshold, server configurable
 // flags will be reset.
-void ServerConfigurableFlagsReset();
+void ServerConfigurableFlagsReset(ResetMode reset_mode);
 
 }  // namespace server_configurable_flags

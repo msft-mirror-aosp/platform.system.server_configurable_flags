@@ -20,13 +20,30 @@
 
 #include "android-base/logging.h"
 
-int main(int argc, char**) {
-  if (argc != 1) {
-    LOG(ERROR) << "argc: " << std::to_string(argc) << ", it should only be 1.";
+// flags_heatlh_check binary takes 1 argument -- reset_mode
+// If reset_mode == BOOT_FAILURE, the binary will examine how many
+// consecutive reboots have failed. If there are more than 4 consecutive
+// reboot failures, flag reset will be performed.
+// If reset_mode == UPDATABLE_CRASHING, the binary will directly perform
+// flag reset actions.
+int main(int argc, char* argv[]) {
+  if (argc != 2) {
+    LOG(ERROR) << "argc: " << std::to_string(argc) << ", it should only be 2.";
     return 1;
   }
 
-  server_configurable_flags::ServerConfigurableFlagsReset();
+  std::string reset_mode_str(argv[1]);
+  server_configurable_flags::ResetMode reset_mode;
+  if (reset_mode_str == "BOOT_FAILURE") {
+    reset_mode = server_configurable_flags::BOOT_FAILURE;
+  } else if (reset_mode_str == "UPDATABLE_CRASHING") {
+    reset_mode = server_configurable_flags::UPDATABLE_CRASHING;
+  } else {
+    LOG(ERROR) << "invalid reset mode: " << reset_mode_str << ".";
+    return 1;
+  }
+
+  server_configurable_flags::ServerConfigurableFlagsReset(reset_mode);
 
   return 0;
 }
