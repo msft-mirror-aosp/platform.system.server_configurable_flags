@@ -66,33 +66,47 @@ static void ResetFlag(const char* key, const char* value, void* cookie) {
     android::base::SetProperty(RESET_PERFORMED_PROPERTY, "true");
   }
 }
+
+// Reset all system properties used as flags into empty value,
+// and record reset flags' names in /data/server_configurable_flags/reset_flags
+static void ResetAllFlags() {
+  std::string reset_flags;
+  property_list(ResetFlag, &reset_flags);
+
+  if (reset_flags.length() > 0) {
+    android::base::unique_fd fd(
+        TEMP_FAILURE_RETRY(open(RESET_FLAGS_FILE_PATH, O_RDWR | O_CREAT | O_TRUNC, 0666)));
+    if (fd == -1) {
+      LOG(INFO) << __FUNCTION__ << " failed to open file " << RESET_FLAGS_FILE_PATH;
+    } else if (!WriteStringToFd(reset_flags, fd)) {
+      LOG(INFO) << __FUNCTION__ << " failed to write file " << RESET_FLAGS_FILE_PATH;
+    } else {
+      LOG(INFO) << __FUNCTION__ << " successfully write to file " << RESET_FLAGS_FILE_PATH;
+    }
+  }
+}
 #endif  // __BIONIC__
 
-void ServerConfigurableFlagsReset() {
+void ServerConfigurableFlagsReset(ResetMode reset_mode) {
+  LOG(INFO) << __FUNCTION__ << " reset_mode value: " << reset_mode;
 #if defined(__BIONIC__)
-  int fail_count = android::base::GetIntProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, 0);
-  if (fail_count < ATTEMPTED_BOOT_COUNT_THRESHOLD) {
-    LOG(INFO) << __FUNCTION__ << " attempted boot count is under threshold, skipping reset.";
+  if (reset_mode == BOOT_FAILURE) {
+    int fail_count = android::base::GetIntProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, 0);
+    if (fail_count < ATTEMPTED_BOOT_COUNT_THRESHOLD) {
+      LOG(INFO) << __FUNCTION__ << " attempted boot count is under threshold, skipping reset.";
 
-    // ATTEMPTED_BOOT_COUNT_PROPERTY will be reset to 0 when sys.boot_completed is set to 1.
-    // The code lives in flags_health_check.rc.
-    android::base::SetProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, std::to_string(fail_count + 1));
-  } else {
-    LOG(INFO) << __FUNCTION__ << " attempted boot count reaches threshold, resetting flags.";
-    std::string reset_flags;
-    property_list(ResetFlag, &reset_flags);
-
-    if (reset_flags.length() > 0) {
-      android::base::unique_fd fd(
-          TEMP_FAILURE_RETRY(open(RESET_FLAGS_FILE_PATH, O_RDWR | O_CREAT | O_TRUNC, 0666)));
-      if (fd == -1) {
-        LOG(INFO) << __FUNCTION__ << " failed to open file " << RESET_FLAGS_FILE_PATH;
-      } else if (!WriteStringToFd(reset_flags, fd)) {
-        LOG(INFO) << __FUNCTION__ << " failed to write file " << RESET_FLAGS_FILE_PATH;
-      } else {
-        LOG(INFO) << __FUNCTION__ << " successfully write to file " << RESET_FLAGS_FILE_PATH;
-      }
+      // ATTEMPTED_BOOT_COUNT_PROPERTY will be reset to 0 when sys.boot_completed is set to 1.
+      // The code lives in flags_health_check.rc.
+      android::base::SetProperty(ATTEMPTED_BOOT_COUNT_PROPERTY, std::to_string(fail_count + 1));
+    } else {
+      LOG(INFO) << __FUNCTION__ << " attempted boot count reaches threshold, resetting flags.";
+      ResetAllFlags();
     }
+  } else if (reset_mode == UPDATABLE_CRASHING) {
+    LOG(INFO) << __FUNCTION__ << " updatable crashing detected, resetting flags.";
+    ResetAllFlags();
+  } else {
+    LOG(ERROR) << __FUNCTION__ << " invalid reset_mode, skipping reset.";
   }
 #else
   LOG(ERROR) << __FUNCTION__ << " ServerConfigurableFlagsReset is not available for this build.";
