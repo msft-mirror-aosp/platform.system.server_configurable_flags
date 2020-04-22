@@ -11,6 +11,10 @@ cc_library {
         "-Werror",
     ],
     export_include_dirs: ["include"],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.resolv",
+    ],
 }
 
 // Tests
