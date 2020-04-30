@@ -15,6 +15,7 @@ cc_library {
         "//apex_available:platform",
         "com.android.resolv",
     ],
+    min_sdk_version: "29",
 }
 
 // Tests
@@ -27,7 +28,7 @@ cc_test {
         "-Wextra",
     ],
     srcs: [
-        "server_configurable_flags_test.cc"
+        "server_configurable_flags_test.cc",
     ],
     shared_libs: [
         "server_configurable_flags",
