@@ -26,7 +26,8 @@ cc_library {
         "com.android.os.statsd",
         "com.android.btservices",
         "com.android.neuralnetworks",
-        "com.android.resolv",
+        "com.android.nfcservices",
+	"com.android.resolv",
     ],
     min_sdk_version: "29",
 }
