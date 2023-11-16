@@ -19,11 +19,7 @@ cc_library {
     export_include_dirs: ["include"],
     apex_available: [
         "//apex_available:platform",
-        "com.android.os.statsd",
-        "com.android.btservices",
-        "com.android.neuralnetworks",
-        "com.android.nfcservices",
-	"com.android.resolv",
+        "//apex_available:anyapex",
     ],
     min_sdk_version: "29",
 }
@@ -53,6 +49,12 @@ cc_library_static {
     srcs: ["rust_get_flags.cpp"],
     generated_headers: ["cxx-bridge-header"],
     generated_sources: ["libflags_rust_generated_cpp_bridge"],
+    apex_available: [
+        "//apex_available:platform",
+        "//apex_available:anyapex",
+    ],
+    host_supported: true,
+    min_sdk_version: "33",
 }
 
 genrule {
@@ -73,4 +75,10 @@ rust_library {
         "libc++",
         "server_configurable_flags",
     ],
+    apex_available: [
+        "//apex_available:platform",
+        "//apex_available:anyapex",
+    ],
+    host_supported: true,
+    min_sdk_version: "33",
 }
