@@ -18,6 +18,7 @@
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 #include <android-base/file.h>
+#include <sys/sendfile.h>
 
 #include "aconfigd_util.h"
 
@@ -37,25 +38,20 @@ Result<void> CopyFile(const std::string& src, const std::string& dst) {
   }
 
   android::base::unique_fd dst_fd(TEMP_FAILURE_RETRY(
-      open(dst.c_str(), O_WRONLY | O_CREAT | O_NOFOLLOW | O_TRUNC | O_CLOEXEC, 0600)));
+      open(dst.c_str(), O_WRONLY | O_CREAT | O_NOFOLLOW | O_TRUNC | O_CLOEXEC, 0644)));
   if (dst_fd == -1) {
     return ErrnoError() << "open() failed for " << dst;
   }
 
   struct stat st;
   if (fstat(src_fd.get(), &st) == -1) {
-    return ErrnoError() << "fstat failed()";
+    return ErrnoError() << "fstat() failed";
   }
   auto len = st.st_size;
 
-  off_t ret;
-  do {
-    ret = copy_file_range(src_fd, NULL, dst_fd, NULL, len, 0);
-    if (ret == -1) {
-      return ErrnoError() << "copy_file_range failed";
-    }
-    len -= ret;
-  } while (len > 0 && ret > 0);
+  if (sendfile(dst_fd, src_fd, nullptr, len) == -1) {
+    return ErrnoError() << "sendfile() failed";
+  }
 
   return {};
 }
