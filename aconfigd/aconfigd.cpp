@@ -134,10 +134,10 @@ Result<void> InitializePlatformStorage() {
   }
 
   auto value_files = std::vector<std::pair<std::string, std::string>>{
-    {"system", "/system/etc"},
-    {"system_ext", "/system_ext/etc"},
-    {"vendor", "/vendor/etc"},
-    {"product", "/product/etc"}};
+    {"system", "/system/etc/aconfig"},
+    {"system_ext", "/system_ext/etc/aconfig"},
+    {"vendor", "/vendor/etc/aconfig"},
+    {"product", "/product/etc/aconfig"}};
 
   bool update_persistent_storage_records = false;
   for (auto const& [container, storage_dir] : value_files) {
