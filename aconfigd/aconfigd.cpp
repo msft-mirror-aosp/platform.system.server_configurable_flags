@@ -37,6 +37,10 @@ namespace aconfigd {
 static constexpr char kPersistentStorageRecordsFileName[] =
     "/metadata/aconfig/persistent_storage_file_records.pb";
 
+/// Persistent storage records pb file full path
+static constexpr char kAvailableStorageRecordsFileName[] =
+    "/metadata/aconfig/available_storage_file_records.pb";
+
 /// In memory data structure for storage file locations for each container
 struct StorageRecord {
   int version;
@@ -62,7 +66,7 @@ struct StorageRecord {
 using StorageRecords = std::unordered_map<std::string, StorageRecord>;
 
 /// In memort storage file records. Parsed from the pb.
-static StorageRecords storage_records;
+static StorageRecords persist_storage_records;
 
 namespace {
 
@@ -82,10 +86,25 @@ Result<storage_records_pb> ReadPersistentStorageRecordsPb() {
   return records;
 }
 
+/// Write aconfig storage records protobuf to file
+Result<void> WriteStorageRecordsPbToFile(const storage_records_pb& records_pb,
+                                         const std::string& file_name) {
+  auto content = std::string();
+  if (!records_pb.SerializeToString(&content)) {
+    return ErrnoError() << "Unable to serialize storage records protobuf";
+  }
+
+  if (!WriteStringToFile(content, file_name)) {
+    return ErrnoError() << "WriteStringToFile failed";
+  }
+
+  return {};
+}
+
 /// Write in memory aconfig storage records to the persistent pb file
 Result<void> WritePersistentStorageRecordsToFile() {
   auto records_pb = storage_records_pb();
-  for (auto const& [container, entry] : storage_records) {
+  for (auto const& [container, entry] : persist_storage_records) {
     auto* record_pb = records_pb.add_files();
     record_pb->set_version(entry.version);
     record_pb->set_container(entry.container);
@@ -95,16 +114,7 @@ Result<void> WritePersistentStorageRecordsToFile() {
     record_pb->set_timestamp(entry.timestamp);
   }
 
-  auto content = std::string();
-  if (!records_pb.SerializeToString(&content)) {
-    return ErrnoError() << "Unable to serialize storage records protobuf";
-  }
-
-  if (!WriteStringToFile(content, kPersistentStorageRecordsFileName)) {
-    return ErrnoError() << "ReadStringToFile failed";
-  }
-
-  return {};
+  return WriteStorageRecordsPbToFile(records_pb, kPersistentStorageRecordsFileName);
 }
 
 /// Initialize in memory aconfig storage records
@@ -115,12 +125,72 @@ Result<void> InitializeInMemoryStorageRecords() {
                    << records_pb.error();
   }
 
-  storage_records.clear();
+  persist_storage_records.clear();
   for (auto& entry : records_pb->files()) {
-    storage_records.insert({entry.container(), StorageRecord(entry)});
+    persist_storage_records.insert({entry.container(), StorageRecord(entry)});
   }
 
   return {};
+}
+
+/// Create boot flag value copy for a container
+Result<void> CreateBootSnapshotForContainer(const std::string& container,
+                                            storage_records_pb& available_storage) {
+  auto src_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
+  auto dst_value_file = std::string("/metadata/aconfig/boot/") + container + ".val";
+  auto copy_result = CopyFile(src_value_file, dst_value_file);
+  if (!copy_result.ok()) {
+    return Error() << "CopyFile failed for " << src_value_file << " :"
+                   << copy_result.error();
+  }
+
+  if (!persist_storage_records.count(container)) {
+    return Error() << "Missing persistent storage records for " << container;
+  }
+
+  auto const& entry = persist_storage_records[container];
+  auto* record_pb = available_storage.add_files();
+  record_pb->set_container(entry.container);
+  record_pb->set_package_map(entry.package_map);
+  record_pb->set_flag_map(entry.flag_map);
+  record_pb->set_flag_val(dst_value_file);
+  record_pb->set_timestamp(entry.timestamp);
+
+  return {};
+}
+
+/// Handle container update, returns if container has been updated
+Result<bool> HandleContainerUpdate(const std::string& container,
+                                   const std::string& package_file,
+                                   const std::string& flag_file,
+                                   const std::string& value_file) {
+  auto timestamp = GetFileTimeStamp(value_file);
+  if (!timestamp.ok()) {
+    return Error() << "Failed to get timestamp of " << value_file
+                   << ": "<< timestamp.error();
+  }
+
+  // check if a partition has been updated by checking timestamp
+  auto it = persist_storage_records.find(container);
+  if (it == persist_storage_records.end() || it->second.timestamp != *timestamp) {
+    auto target_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
+    auto copy_result = CopyFile(value_file, target_value_file);
+    if (!copy_result.ok()) {
+      return Error() << "CopyFile failed for " << value_file << " :"
+                     << copy_result.error();
+    }
+
+    auto& record = persist_storage_records[container];
+    record.container = container;
+    record.package_map = package_file;
+    record.flag_map = flag_file;
+    record.flag_val = target_value_file;
+    record.timestamp = *timestamp;
+
+    return true;
+  }
+
+  return false;
 }
 
 } // namespace
@@ -139,6 +209,7 @@ Result<void> InitializePlatformStorage() {
     {"vendor", "/vendor/etc/aconfig"},
     {"product", "/product/etc/aconfig"}};
 
+  auto available_storage_pb = storage_records_pb();
   bool update_persistent_storage_records = false;
   for (auto const& [container, storage_dir] : value_files) {
     auto package_file = std::string(storage_dir) + "/package.map";
@@ -149,27 +220,16 @@ Result<void> InitializePlatformStorage() {
       continue;
     }
 
-    auto timestamp = GetFileTimeStamp(value_file);
-    if (!timestamp.ok()) {
-      return Error() << "Failed to get timestamp of " << value_file
-                     << ": "<< timestamp.error();
+    auto updated_result = HandleContainerUpdate(container, package_file, flag_file, value_file);
+    if (!updated_result.ok()) {
+      return Error() << updated_result.error();
+    } else {
+      update_persistent_storage_records |= *updated_result;
     }
 
-    auto it = storage_records.find(container);
-    if (it == storage_records.end() || it->second.timestamp != *timestamp) {
-      update_persistent_storage_records = true;
-      auto target_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
-      auto copy_result = CopyFile(value_file, target_value_file);
-      if (!copy_result.ok()) {
-        return Error() << "CopyFile failed for " << value_file << " :"
-                       << copy_result.error();
-      }
-      auto& record = storage_records[container];
-      record.container = container;
-      record.package_map = package_file;
-      record.flag_map = flag_file;
-      record.flag_val = value_file;
-      record.timestamp = *timestamp;
+    auto copy_result = CreateBootSnapshotForContainer(container, available_storage_pb);
+    if (!copy_result.ok()) {
+      return Error() << copy_result.error();
     }
   }
 
@@ -180,6 +240,8 @@ Result<void> InitializePlatformStorage() {
                      << write_result.error();
     }
   }
+
+  WriteStorageRecordsPbToFile(available_storage_pb, kAvailableStorageRecordsFileName);
 
   return {};
 }
