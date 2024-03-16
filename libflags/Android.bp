@@ -9,9 +9,6 @@ cc_library {
     vendor_available: true,
     double_loadable: true,
     product_available: true,
-    vndk: {
-        enabled: true,
-    },
     shared_libs: [
         "libbase",
         "libcutils",
