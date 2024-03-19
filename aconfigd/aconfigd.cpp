@@ -20,6 +20,8 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <cutils/sockets.h>
+
+#include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfigd.pb.h>
 
@@ -98,6 +100,10 @@ Result<void> WriteStorageRecordsPbToFile(const storage_records_pb& records_pb,
     return ErrnoError() << "WriteStringToFile failed";
   }
 
+  if (chmod(file_name.c_str(), 0644) == -1) {
+    return ErrnoError() << "chmod failed";
+  };
+
   return {};
 }
 
@@ -138,7 +144,7 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container,
                                             storage_records_pb& available_storage) {
   auto src_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
   auto dst_value_file = std::string("/metadata/aconfig/boot/") + container + ".val";
-  auto copy_result = CopyFile(src_value_file, dst_value_file);
+  auto copy_result = CopyFile(src_value_file, dst_value_file, 0444);
   if (!copy_result.ok()) {
     return Error() << "CopyFile failed for " << src_value_file << " :"
                    << copy_result.error();
@@ -150,6 +156,7 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container,
 
   auto const& entry = persist_storage_records[container];
   auto* record_pb = available_storage.add_files();
+  record_pb->set_version(entry.version);
   record_pb->set_container(entry.container);
   record_pb->set_package_map(entry.package_map);
   record_pb->set_flag_map(entry.flag_map);
@@ -174,13 +181,19 @@ Result<bool> HandleContainerUpdate(const std::string& container,
   auto it = persist_storage_records.find(container);
   if (it == persist_storage_records.end() || it->second.timestamp != *timestamp) {
     auto target_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
-    auto copy_result = CopyFile(value_file, target_value_file);
+    auto copy_result = CopyFile(value_file, target_value_file, 0644);
     if (!copy_result.ok()) {
       return Error() << "CopyFile failed for " << value_file << " :"
                      << copy_result.error();
     }
 
+    auto version_result = aconfig_storage::get_storage_file_version(value_file);
+    if (!version_result.ok()) {
+      return Error() << "Failed to get storage version: " << version_result.error();
+    }
+
     auto& record = persist_storage_records[container];
+    record.version = *version_result;
     record.container = container;
     record.package_map = package_file;
     record.flag_map = flag_file;
