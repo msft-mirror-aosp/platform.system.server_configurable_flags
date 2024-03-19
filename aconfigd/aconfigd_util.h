@@ -16,12 +16,13 @@
 
 #include <string>
 #include <android-base/result.h>
+#include <sys/stat.h>
 
 namespace android {
   namespace aconfigd {
 
   /// Copy file
-  base::Result<void> CopyFile(const std::string& src, const std::string& dst);
+  base::Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mode);
 
   /// Get a file's timestamp
   base::Result<int> GetFileTimeStamp(const std::string& file);
