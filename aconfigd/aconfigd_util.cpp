@@ -30,7 +30,7 @@ namespace android {
 namespace aconfigd {
 
 /// Copy file
-Result<void> CopyFile(const std::string& src, const std::string& dst) {
+Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mode) {
   android::base::unique_fd src_fd(
       TEMP_FAILURE_RETRY(open(src.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)));
   if (src_fd == -1) {
@@ -51,6 +51,10 @@ Result<void> CopyFile(const std::string& src, const std::string& dst) {
 
   if (sendfile(dst_fd, src_fd, nullptr, len) == -1) {
     return ErrnoError() << "sendfile() failed";
+  }
+
+  if (chmod(dst.c_str(), mode) == -1) {
+    return ErrnoError() << "chmod() failed";
   }
 
   return {};
