@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 #include <cutils/sockets.h>
@@ -25,24 +24,30 @@
 using namespace android::aconfigd;
 
 int main(int argc, char** argv) {
-  (void)argc;
   android::base::InitLogging(argv, &android::base::KernelLogger);
 
-  auto init_result = InitializePlatformStorage();
-  if (!init_result.ok()) {
-    LOG(ERROR) << "failed to initialize storage records: " << init_result.error();
+  if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {
+    LOG(ERROR) << "invalid aconfigd command";
     return 1;
   }
 
-  pid_t pid = fork();
-  if (pid < 0) {
-    PLOG(ERROR) << "failed to fork";
+  auto init_result = InitializeInMemoryStorageRecords();
+  if (!init_result.ok()) {
+    LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
+               << init_result.error();
     return 1;
-  } else if (pid != 0) {
+  }
+
+  if (argc == 2 && strcmp("--initialize", argv[1]) == 0) {
+    auto init_result = InitializePlatformStorage();
+    if (!init_result.ok()) {
+      LOG(ERROR) << "failed to initialize storage records: " << init_result.error();
+      return 1;
+    }
     return 0;
   }
 
-  auto aconfigd_fd = android_get_control_socket(kAconfigdSocket);
+  auto aconfigd_fd = android::base::unique_fd(android_get_control_socket(kAconfigdSocket));
   if (aconfigd_fd == -1) {
     PLOG(ERROR) << "failed to get aconfigd socket";
     return 1;
@@ -53,12 +58,21 @@ int main(int argc, char** argv) {
     return 1;
   };
 
+  auto addr = sockaddr_un();
+  addr.sun_family = AF_UNIX;
+  auto path = std::string("/dev/socket/") + kAconfigdSocket;
+  strlcpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path));
+  socklen_t addr_len = sizeof(addr);
+
   while(true) {
-    auto client_fd = accept4(aconfigd_fd, nullptr, nullptr, SOCK_CLOEXEC);
+    LOG(INFO) << "start accepting client requests";
+    auto client_fd = accept4(
+        aconfigd_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len, SOCK_CLOEXEC);
     if (client_fd == -1) {
       PLOG(ERROR) << "failed to establish connection";
       break;
     }
+    LOG(INFO) << "received a client requests";
 
     char buffer[kBufferSize] = {};
     auto num_bytes = TEMP_FAILURE_RETRY(recv(client_fd, buffer, sizeof(buffer), 0));
