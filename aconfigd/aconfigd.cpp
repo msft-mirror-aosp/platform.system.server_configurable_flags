@@ -17,6 +17,8 @@
 #include <string>
 #include <unordered_map>
 
+#include <dirent.h>
+
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <cutils/sockets.h>
@@ -41,7 +43,7 @@ static constexpr char kPersistentStorageRecordsFileName[] =
 
 /// Persistent storage records pb file full path
 static constexpr char kAvailableStorageRecordsFileName[] =
-    "/metadata/aconfig/available_storage_file_records.pb";
+    "/metadata/aconfig/boot/available_storage_file_records.pb";
 
 /// In memory data structure for storage file locations for each container
 struct StorageRecord {
@@ -133,6 +135,16 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   // create boot copy
   auto src_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
   auto dst_value_file = std::string("/metadata/aconfig/boot/") + container + ".val";
+
+  // If the boot copy already exists, do nothing. Never update the boot copy, the boot
+  // copy should be boot stable. So in the following scenario: a container storage
+  // file boot copy is created, then an updated container is mounted along side existing
+  // container. In this case, we should update the persistent storage file copy. But
+  // never touch the current boot copy.
+  if (FileExists(dst_value_file)) {
+    return {};
+  }
+
   auto copy_result = CopyFile(src_value_file, dst_value_file, 0444);
   if (!copy_result.ok()) {
     return Error() << "CopyFile failed for " << src_value_file << " :"
@@ -235,6 +247,14 @@ Result<void> InitializeInMemoryStorageRecords() {
 
 /// Initialize platform RO partition flag storage
 Result<void> InitializePlatformStorage() {
+  // TODO: remove this check once b/330134027 is fixed. This is temporary as android
+  // on chrome os vm does not have /metadata partition at the moment.
+  DIR* dir = opendir("/metadata/aconfig");
+  if (!dir) {
+    return {};
+  }
+  closedir(dir);
+
   auto value_files = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
     {"system_ext", "/system_ext/etc/aconfig"},
@@ -250,7 +270,8 @@ Result<void> InitializePlatformStorage() {
       continue;
     }
 
-    auto updated_result = HandleContainerUpdate(container, package_file, flag_file, value_file);
+    auto updated_result = HandleContainerUpdate(
+        container, package_file, flag_file, value_file);
     if (!updated_result.ok()) {
       return Error() << updated_result.error();
     }
@@ -265,11 +286,10 @@ Result<void> InitializePlatformStorage() {
 }
 
 /// Handle incoming messages to aconfigd socket
-void HandleSocketRequest(const std::string& msg) {
+Result<void> HandleSocketRequest(const std::string& msg) {
   auto message = StorageMessage{};
   if (!message.ParseFromString(msg)) {
-    LOG(ERROR) << "Could not parse message from aconfig storage init socket";
-    return;
+    return Error() << "Could not parse message from aconfig storage init socket";
   }
 
   switch (message.msg_case()) {
@@ -279,13 +299,13 @@ void HandleSocketRequest(const std::string& msg) {
       auto updated_result = HandleContainerUpdate(
           msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
       if (!updated_result.ok()) {
-        LOG(ERROR) << "Failed to update container " << msg.container()
+        return Error() << "Failed to update container " << msg.container()
             << ":" << updated_result.error();
       }
 
       auto copy_result = CreateBootSnapshotForContainer(msg.container());
       if (!copy_result.ok()) {
-        LOG(ERROR) << "Failed to make a boot copy: " << copy_result.error();
+        return Error() << "Failed to make a boot copy: " << copy_result.error();
       }
       break;
     }
@@ -295,8 +315,10 @@ void HandleSocketRequest(const std::string& msg) {
       break;
     }
     default:
-      LOG(ERROR) << "Unknown message type from aconfigd socket: " << message.msg_case();
+      return Error() << "Unknown message type from aconfigd socket: " << message.msg_case();
   }
+
+  return {};
 }
 
 } // namespace aconfigd

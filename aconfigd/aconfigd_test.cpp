@@ -79,7 +79,14 @@ TEST(aconfigd_socket, new_storage_message) {
       send(*sock_fd, message_string.c_str(), message_string.size(), 0));
   ASSERT_EQ(result, static_cast<long>(message_string.size())) << strerror(errno);
 
-  auto pb_file = "/metadata/aconfig/available_storage_file_records.pb";
+  char buffer[1280] = {};
+  auto num_bytes = TEMP_FAILURE_RETRY(
+      recv(*sock_fd, buffer, sizeof(buffer), 0));
+  ASSERT_TRUE(num_bytes >= 0) << strerror(errno);
+  auto received_msg = std::string(buffer, num_bytes);
+  ASSERT_EQ(received_msg, "") << "expect empty error message returned from socket";
+
+  auto pb_file = "/metadata/aconfig/boot/available_storage_file_records.pb";
   auto records_pb = storage_records_pb();
   auto content = std::string();
   ASSERT_TRUE(base::ReadFileToString(pb_file, &content)) << strerror(errno);
