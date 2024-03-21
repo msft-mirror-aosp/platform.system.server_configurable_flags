@@ -7,6 +7,7 @@ cc_binary {
     "aconfigd_util.cpp",
   ],
   static_libs: [
+    "libaconfig_storage_read_api_cc",
     "libaconfig_storage_protos_cc",
     "libprotobuf-cpp-lite",
     "libbase",
@@ -14,4 +15,29 @@ cc_binary {
     "liblog",
   ],
   init_rc: ["aconfigd.rc"],
+}
+
+cc_test {
+    name: "aconfigd_test",
+    srcs: [
+        "aconfigd_test.cpp",
+        "aconfigd.proto",
+    ],
+    static_libs: [
+        "libgmock",
+        "libaconfig_storage_protos_cc",
+        "libprotobuf-cpp-lite",
+        "libbase",
+        "libcutils",
+        "liblog",
+    ],
+    data: [
+        "tests/package.map",
+        "tests/flag.map",
+        "tests/flag.val",
+    ],
+    test_suites: [
+        "device-tests",
+        "general-tests",
+    ],
 }
