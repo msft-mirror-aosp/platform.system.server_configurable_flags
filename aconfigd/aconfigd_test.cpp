@@ -62,19 +62,12 @@ base::Result<base::unique_fd> connect_aconfigd_socket() {
   return sock_fd;
 }
 
-base::Result<void> send_new_storage_message() {
+// send a message to aconfigd socket, and capture return message
+base::Result<std::string> send_message(const StorageMessage& message) {
   auto sock_fd = connect_aconfigd_socket();
   if (!sock_fd.ok()) {
     return Error() << sock_fd.error();
   }
-
-  auto message = StorageMessage{};
-  auto msg = message.mutable_new_storage_message();
-  auto test_dir = base::GetExecutableDirectory();
-  msg->set_container("mockup");
-  msg->set_package_map(test_dir + "/tests/package.map");
-  msg->set_flag_map(test_dir + "/tests/flag.map");
-  msg->set_flag_value(test_dir + "/tests/flag.val");
 
   auto message_string = std::string();
   if (!message.SerializeToString(&message_string)) {
@@ -93,17 +86,44 @@ base::Result<void> send_new_storage_message() {
     return ErrnoError() << "recv() failed";
   }
 
-  auto return_msg = std::string(buffer, num_bytes);
-  if (!return_msg.empty()) {
-    return Error() << "failed to add mockup storage: " << return_msg;
-  }
+  return std::string(buffer, num_bytes);
+}
 
-  return {};
+base::Result<std::string> send_new_storage_message() {
+  auto message = StorageMessage{};
+  auto msg = message.mutable_new_storage_message();
+  auto test_dir = base::GetExecutableDirectory();
+  msg->set_container("mockup");
+  msg->set_package_map(test_dir + "/tests/package.map");
+  msg->set_flag_map(test_dir + "/tests/flag.map");
+  msg->set_flag_value(test_dir + "/tests/flag.val");
+  return send_message(message);
+}
+
+base::Result<std::string> send_flag_override_message(const std::string& package,
+                                                     const std::string& flag,
+                                                     const std::string& value) {
+  auto message = StorageMessage{};
+  auto msg = message.mutable_flag_override_message();
+  msg->set_package_name(package);
+  msg->set_flag_name(flag);
+  msg->set_flag_value(value);
+  return send_message(message);
+}
+
+base::Result<std::string> send_flag_query_message(const std::string& package,
+                                                  const std::string& flag) {
+  auto message = StorageMessage{};
+  auto msg = message.mutable_flag_query_message();
+  msg->set_package_name(package);
+  msg->set_flag_name(flag);
+  return send_message(message);
 }
 
 TEST(aconfigd_socket, new_storage_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
+  ASSERT_TRUE(new_storage_result->empty());
 
   auto pb_file = "/metadata/aconfig/boot/available_storage_file_records.pb";
   auto records_pb = storage_records_pb();
@@ -124,29 +144,27 @@ TEST(aconfigd_socket, new_storage_message) {
 TEST(aconfigd_socket, flag_override_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
+  ASSERT_EQ(*new_storage_result, "");
 
-  auto sock_fd = connect_aconfigd_socket();
-  ASSERT_TRUE(sock_fd.ok()) << strerror(errno);
+  auto flag_override_result = send_flag_override_message(
+      "com.android.aconfig.storage.test_1", "enabled_rw", "true");
+  ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
+  ASSERT_EQ(*flag_override_result, "");
 
-  auto message = StorageMessage{};
-  auto msg = message.mutable_flag_override_message();
-  msg->set_package_name("com.android.aconfig.storage.test_1");
-  msg->set_flag_name("enabled_rw");
-  msg->set_flag_value("true");
+  auto flag_query_result = send_flag_query_message(
+      "com.android.aconfig.storage.test_1", "enabled_rw");
+  ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
+  ASSERT_EQ(*flag_query_result, "true");
 
-  auto message_string = std::string();
-  ASSERT_TRUE(message.SerializeToString(&message_string));
+  flag_override_result = send_flag_override_message(
+      "com.android.aconfig.storage.test_1", "enabled_rw", "false");
+  ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
+  ASSERT_EQ(*flag_override_result, "");
 
-  auto result = TEMP_FAILURE_RETRY(
-      send(*sock_fd, message_string.c_str(), message_string.size(), 0));
-  ASSERT_EQ(result, static_cast<long>(message_string.size())) << strerror(errno);
-
-  char buffer[1280] = {};
-  auto num_bytes = TEMP_FAILURE_RETRY(
-      recv(*sock_fd, buffer, sizeof(buffer), 0));
-  ASSERT_TRUE(num_bytes >= 0) << strerror(errno);
-  auto received_msg = std::string(buffer, num_bytes);
-  ASSERT_EQ(received_msg, "") << "expect empty error message returned from socket";
+  flag_query_result = send_flag_query_message(
+      "com.android.aconfig.storage.test_1", "enabled_rw");
+  ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
+  ASSERT_EQ(*flag_query_result, "false");
 }
 
 } // namespace aconfigd
