@@ -24,6 +24,7 @@
 #include <cutils/sockets.h>
 
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
+#include <aconfig_storage/aconfig_storage_write_api.hpp>
 #include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfigd.pb.h>
 
@@ -69,8 +70,11 @@ struct StorageRecord {
 /// A map from container name to the respective storage file locations
 using StorageRecords = std::unordered_map<std::string, StorageRecord>;
 
-/// In memort storage file records. Parsed from the pb.
+/// In memory storage file records. Parsed from the pb.
 static StorageRecords persist_storage_records;
+
+/// In memory cache for package to container mapping
+static std::unordered_map<std::string, std::string> container_map;
 
 namespace {
 
@@ -227,6 +231,144 @@ Result<bool> HandleContainerUpdate(const std::string& container,
   return false;
 }
 
+/// Find the container name given flag package name
+Result<std::string> FindContainer(const std::string& package) {
+  if (container_map.count(package)) {
+    return container_map[package];
+  }
+
+  auto records_pb = ReadStorageRecordsPb(kAvailableStorageRecordsFileName);
+  if (!records_pb.ok()) {
+    return Error() << "Unable to read available storage records: "
+                   << records_pb.error();
+  }
+
+  for (auto& entry : records_pb->files()) {
+    auto mapped_file = aconfig_storage::get_mapped_file(
+        entry.container(), aconfig_storage::StorageFileType::package_map);
+    if (!mapped_file.ok()) {
+      return Error() << "Failed to map file for container " << entry.container()
+                     << ": " << mapped_file.error();
+    }
+
+    auto offset = aconfig_storage::get_package_offset(*mapped_file, package);
+    if (!offset.ok()) {
+      return Error() << "Failed to get offset for package " << package
+                     << " from package map of " << entry.container() << " :"
+                     << offset.error();
+    }
+
+    if (offset->package_exists) {
+      container_map[package] = entry.container();
+      return entry.container();
+    }
+  }
+
+  return Error() << "package not found";
+}
+
+/// Find boolean flag offset in flag value file
+Result<uint32_t> FindBooleanFlagOffset(const std::string& container,
+                                       const std::string& package,
+                                       const std::string& flag) {
+
+  auto package_map = aconfig_storage::get_mapped_file(
+      container, aconfig_storage::StorageFileType::package_map);
+  if (!package_map.ok()) {
+    return Error() << "Failed to map package map file for " << container
+                   << ": " << package_map.error();
+  }
+
+  auto pkg_offset = aconfig_storage::get_package_offset(*package_map, package);
+  if (!pkg_offset.ok()) {
+    return Error() << "Failed to get package offset of " << package
+                   << " in " << container  << " :" << pkg_offset.error();
+  }
+
+  if (!pkg_offset->package_exists) {
+    return Error() << package << " is not found in " << container;
+  }
+
+  uint32_t package_id = pkg_offset->package_id;
+  uint32_t package_offset = pkg_offset->boolean_offset;
+
+  auto flag_map = aconfig_storage::get_mapped_file(
+      container, aconfig_storage::StorageFileType::flag_map);
+  if (!flag_map.ok()) {
+    return Error() << "Failed to map flag map file for " << container
+                   << ": " << flag_map.error();
+  }
+
+  auto flg_offset = aconfig_storage::get_flag_offset(*flag_map, package_id, flag);
+  if (!flg_offset.ok()) {
+    return Error() << "Failed to get flag offset of " << flag
+                   << " in " << container  << " :" << flg_offset.error();
+  }
+
+  if (!flg_offset->flag_exists) {
+    return Error() << flag << " is not found in " << container;
+  }
+
+  uint16_t flag_offset = flg_offset->flag_offset;
+  return package_offset + flag_offset;
+}
+
+/// Add a new storage
+Result<void> add_new_storage(const std::string& container,
+                             const std::string& package_map,
+                             const std::string& flag_map,
+                             const std::string& flag_val) {
+  auto updated_result = HandleContainerUpdate(
+      container, package_map, flag_map, flag_val);
+  if (!updated_result.ok()) {
+    return Error() << "Failed to update container " << container
+                   << ":" << updated_result.error();
+  }
+
+  auto copy_result = CreateBootSnapshotForContainer(container);
+  if (!copy_result.ok()) {
+    return Error() << "Failed to make a boot copy: " << copy_result.error();
+  }
+
+  return {};
+}
+
+/// Update persistent boolean flag value
+Result<void> update_boolean_flag_value(const std::string& package_name,
+                                       const std::string& flag_name,
+                                       const std::string& flag_value) {
+  auto container_result = FindContainer(package_name);
+  if (!container_result.ok()) {
+    return Error() << "Failed for find container for package " << package_name
+                   << ": " << container_result.error();
+  }
+  auto container = *container_result;
+
+  auto offset_result = FindBooleanFlagOffset(container, package_name, flag_name);
+  if (!offset_result.ok()) {
+    return Error() << "Failed to obtain " << package_name << "."
+                   << flag_name << " flag value offset: " << offset_result.error();
+  }
+
+  auto mapped_file = aconfig_storage::get_mapped_flag_value_file(container);
+  if (!mapped_file.ok()) {
+    return Error() << "Failed to map flag value file for " << container
+                   << ": " << mapped_file.error();
+  }
+
+  if (flag_value != "true" && flag_value != "false") {
+    return Error() << "Invalid boolean flag value, it should be true|false";
+  }
+
+  auto update_result = aconfig_storage::set_boolean_flag_value(
+      *mapped_file, *offset_result, flag_value == "true");
+  if (!update_result.ok()) {
+    return Error() << "Failed to update flag value: " << update_result.error();
+  }
+
+  return {};
+}
+
 } // namespace
 
 /// Initialize in memory aconfig storage records
@@ -294,24 +436,20 @@ Result<void> HandleSocketRequest(const std::string& msg) {
 
   switch (message.msg_case()) {
     case StorageMessage::kNewStorageMessage: {
+      LOG(INFO) << "received a new storage request";
       auto msg = message.new_storage_message();
-
-      auto updated_result = HandleContainerUpdate(
-          msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
-      if (!updated_result.ok()) {
-        return Error() << "Failed to update container " << msg.container()
-            << ":" << updated_result.error();
-      }
-
-      auto copy_result = CreateBootSnapshotForContainer(msg.container());
-      if (!copy_result.ok()) {
-        return Error() << "Failed to make a boot copy: " << copy_result.error();
-      }
+      return add_new_storage(msg.container(),
+                             msg.package_map(),
+                             msg.flag_map(),
+                             msg.flag_value());
       break;
     }
     case StorageMessage::kFlagOverrideMessage: {
-      // TODO
-      // Update flag value based
+      LOG(INFO) << "received a flag override request";
+      auto msg = message.flag_override_message();
+      return update_boolean_flag_value(msg.package_name(),
+                                       msg.flag_name(),
+                                       msg.flag_value());
       break;
     }
     default:
