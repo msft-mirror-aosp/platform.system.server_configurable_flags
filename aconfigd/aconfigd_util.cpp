@@ -14,11 +14,14 @@
  * limitations under the License.
  */
 
+#include <memory>
+#include <vector>
 
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 #include <android-base/file.h>
 #include <sys/sendfile.h>
+#include <fts.h>
 
 #include "aconfigd_util.h"
 
@@ -29,8 +32,36 @@ using ::android::base::ErrnoError;
 namespace android {
 namespace aconfigd {
 
+/// Remove all files in a dir
+Result<void> RemoveFilesInDir(const std::string& dir) {
+  auto dir_cstr = std::unique_ptr<char[]>(new char[dir.length() + 1]);
+  strcpy(dir_cstr.get(), dir.c_str());
+  char* path[2] {dir_cstr.get(), nullptr};
+
+  FTS* file_system = fts_open(path, FTS_NOCHDIR, 0);
+  if (!file_system) {
+    return ErrnoError() << "fts_open() failed";
+  }
+
+  auto to_delete = std::vector<std::string>();
+  FTSENT* node = nullptr;
+  while ((node = fts_read(file_system))){
+    if (node->fts_info & FTS_F) {
+      to_delete.emplace_back(std::string(node->fts_path));
+    }
+  }
+
+  for (const auto& file : to_delete) {
+    if (unlink(file.c_str()) == -1) {
+      return ErrnoError() << "unlink() failed for " << file;
+    }
+  }
+
+  return {};
+}
+
 /// Copy file
-Result<void> CopyFile(const std::string& src, const std::string& dst) {
+Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mode) {
   android::base::unique_fd src_fd(
       TEMP_FAILURE_RETRY(open(src.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)));
   if (src_fd == -1) {
@@ -51,6 +82,10 @@ Result<void> CopyFile(const std::string& src, const std::string& dst) {
 
   if (sendfile(dst_fd, src_fd, nullptr, len) == -1) {
     return ErrnoError() << "sendfile() failed";
+  }
+
+  if (chmod(dst.c_str(), mode) == -1) {
+    return ErrnoError() << "chmod() failed";
   }
 
   return {};
