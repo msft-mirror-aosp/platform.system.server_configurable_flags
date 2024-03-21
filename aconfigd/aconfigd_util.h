@@ -21,6 +21,9 @@
 namespace android {
   namespace aconfigd {
 
+  /// Remove files in a dir
+  base::Result<void> RemoveFilesInDir(const std::string& dir);
+
   /// Copy file
   base::Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mode);
 

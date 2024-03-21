@@ -20,17 +20,11 @@
 #include <sys/un.h>
 
 #include "aconfigd.h"
+#include "aconfigd_util.h"
 
 using namespace android::aconfigd;
 
-int main(int argc, char** argv) {
-  android::base::InitLogging(argv, &android::base::KernelLogger);
-
-  if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {
-    LOG(ERROR) << "invalid aconfigd command";
-    return 1;
-  }
-
+static int aconfigd_init() {
   auto init_result = InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
     LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
@@ -38,13 +32,28 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  if (argc == 2 && strcmp("--initialize", argv[1]) == 0) {
-    auto init_result = InitializePlatformStorage();
-    if (!init_result.ok()) {
-      LOG(ERROR) << "failed to initialize storage records: " << init_result.error();
-      return 1;
-    }
-    return 0;
+  // clear boot dir to start fresh at each boot
+  auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
+  if (!remove_result.ok()) {
+    LOG(ERROR) <<"failed to clear boot dir: " << remove_result.error();
+    return 1;
+  }
+
+  auto plat_result = InitializePlatformStorage();
+  if (!plat_result.ok()) {
+    LOG(ERROR) << "failed to initialize storage records: " << plat_result.error();
+    return 1;
+  }
+
+  return 0;
+}
+
+static int aconfigd_start() {
+  auto init_result = InitializeInMemoryStorageRecords();
+  if (!init_result.ok()) {
+    LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
+               << init_result.error();
+    return 1;
   }
 
   auto aconfigd_fd = android::base::unique_fd(android_get_control_socket(kAconfigdSocket));
@@ -66,8 +75,8 @@ int main(int argc, char** argv) {
 
   while(true) {
     LOG(INFO) << "start accepting client requests";
-    auto client_fd = accept4(
-        aconfigd_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len, SOCK_CLOEXEC);
+    auto client_fd = android::base::unique_fd(accept4(
+        aconfigd_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len, SOCK_CLOEXEC));
     if (client_fd == -1) {
       PLOG(ERROR) << "failed to establish connection";
       break;
@@ -85,8 +94,35 @@ int main(int argc, char** argv) {
     }
     auto msg = std::string(buffer, num_bytes);
 
-    HandleSocketRequest(msg);
+    auto handle_result = HandleSocketRequest(msg);
+    if (!handle_result.ok()) {
+      LOG(ERROR) << "failed to handle socket request: " << handle_result.error();
+    }
+
+    auto return_msg =
+        std::string(handle_result.ok() ? "" : handle_result.error().message());
+    auto num = TEMP_FAILURE_RETRY(
+        send(client_fd, return_msg.c_str(), return_msg.size(), 0));
+    if (num != static_cast<long>(return_msg.size())) {
+      PLOG(ERROR) << "failed to send return message";
+    }
   }
 
   return 1;
+
+}
+
+int main(int argc, char** argv) {
+  android::base::InitLogging(argv, &android::base::KernelLogger);
+
+  if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {
+    LOG(ERROR) << "invalid aconfigd command";
+    return 1;
+  }
+
+  if (argc == 2 && strcmp("--initialize", argv[1]) == 0) {
+    return aconfigd_init();
+  }
+
+  return aconfigd_start();
 }
