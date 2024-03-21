@@ -32,7 +32,10 @@ namespace android {
     base::Result<void> InitializePlatformStorage();
 
     /// Handle incoming messages to aconfigd socket
-    void HandleSocketRequest(const std::string& msg);
+    base::Result<void> HandleSocketRequest(const std::string& msg);
+
+    /// Initialize in memory aconfig storage records
+    base::Result<void> InitializeInMemoryStorageRecords();
 
   } // namespace aconfigd
 } // namespace android
