@@ -422,14 +422,6 @@ Result<void> InitializeInMemoryStorageRecords() {
 
 /// Initialize platform RO partition flag storage
 Result<void> InitializePlatformStorage() {
-  // TODO: remove this check once b/330134027 is fixed. This is temporary as android
-  // on chrome os vm does not have /metadata partition at the moment.
-  DIR* dir = opendir("/metadata/aconfig");
-  if (!dir) {
-    return {};
-  }
-  closedir(dir);
-
   auto value_files = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
     {"system_ext", "/system_ext/etc/aconfig"},
