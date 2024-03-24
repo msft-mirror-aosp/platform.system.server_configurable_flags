@@ -314,10 +314,10 @@ Result<uint32_t> FindBooleanFlagOffset(const std::string& container,
 }
 
 /// Add a new storage
-Result<void> add_new_storage(const std::string& container,
-                             const std::string& package_map,
-                             const std::string& flag_map,
-                             const std::string& flag_val) {
+Result<void> AddNewStorage(const std::string& container,
+                           const std::string& package_map,
+                           const std::string& flag_map,
+                           const std::string& flag_val) {
   auto updated_result = HandleContainerUpdate(
       container, package_map, flag_map, flag_val);
   if (!updated_result.ok()) {
@@ -334,9 +334,9 @@ Result<void> add_new_storage(const std::string& container,
 }
 
 /// Update persistent boolean flag value
-Result<void> update_boolean_flag_value(const std::string& package_name,
-                                       const std::string& flag_name,
-                                       const std::string& flag_value) {
+Result<void> UpdateBooleanFlagValue(const std::string& package_name,
+                                    const std::string& flag_name,
+                                    const std::string& flag_value) {
   auto container_result = FindContainer(package_name);
   if (!container_result.ok()) {
     return Error() << "Failed for find container for package " << package_name
@@ -367,6 +367,39 @@ Result<void> update_boolean_flag_value(const std::string& package_name,
   }
 
   return {};
+}
+
+/// Query persistent boolean flag value
+Result<bool> GetBooleanFlagValue(const std::string& package_name,
+                                 const std::string& flag_name) {
+  auto container_result = FindContainer(package_name);
+  if (!container_result.ok()) {
+    return Error() << "Failed for find container for package " << package_name
+                   << ": " << container_result.error();
+  }
+  auto container = *container_result;
+  auto offset_result = FindBooleanFlagOffset(container, package_name, flag_name);
+  if (!offset_result.ok()) {
+    return Error() << "Failed to obtain " << package_name << "."
+                   << flag_name << " flag value offset: " << offset_result.error();
+  }
+
+  auto mapped_file_result = aconfig_storage::get_mapped_flag_value_file(container);
+  if (!mapped_file_result.ok()) {
+    return Error() << "Failed to map flag value file for " << container
+                   << ": " << mapped_file_result.error();
+  }
+
+  auto ro_mapped_file = aconfig_storage::MappedStorageFile();
+  ro_mapped_file.file_ptr = mapped_file_result->file_ptr;
+  ro_mapped_file.file_size = mapped_file_result->file_size;
+  auto value_result = aconfig_storage::get_boolean_flag_value(
+      ro_mapped_file, *offset_result);
+  if (!value_result.ok()) {
+    return Error() << "Failed to get flag value: " << value_result.error();
+  }
+
+  return *value_result;
 }
 
 } // namespace
@@ -428,35 +461,53 @@ Result<void> InitializePlatformStorage() {
 }
 
 /// Handle incoming messages to aconfigd socket
-Result<void> HandleSocketRequest(const std::string& msg) {
+Result<std::string> HandleSocketRequest(const std::string& msg) {
   auto message = StorageMessage{};
   if (!message.ParseFromString(msg)) {
     return Error() << "Could not parse message from aconfig storage init socket";
   }
 
+  auto return_message = std::string();
   switch (message.msg_case()) {
     case StorageMessage::kNewStorageMessage: {
       LOG(INFO) << "received a new storage request";
       auto msg = message.new_storage_message();
-      return add_new_storage(msg.container(),
-                             msg.package_map(),
-                             msg.flag_map(),
-                             msg.flag_value());
+      auto result = AddNewStorage(msg.container(),
+                                  msg.package_map(),
+                                  msg.flag_map(),
+                                  msg.flag_value());
+      if (!result.ok()) {
+        return Error() << result.error();
+      }
       break;
     }
     case StorageMessage::kFlagOverrideMessage: {
       LOG(INFO) << "received a flag override request";
       auto msg = message.flag_override_message();
-      return update_boolean_flag_value(msg.package_name(),
-                                       msg.flag_name(),
-                                       msg.flag_value());
+      auto result = UpdateBooleanFlagValue(msg.package_name(),
+                                           msg.flag_name(),
+                                           msg.flag_value());
+      if (!result.ok()) {
+        return Error() << result.error();
+      }
+      break;
+    }
+    case StorageMessage::kFlagQueryMessage: {
+      LOG(INFO) << "received a flag query request";
+      auto msg = message.flag_query_message();
+      auto result = GetBooleanFlagValue(msg.package_name(),
+                                        msg.flag_name());
+      if (!result.ok()) {
+        return Error() << result.error();
+      }
+      return_message = *result ? "true" : "false";
       break;
     }
     default:
       return Error() << "Unknown message type from aconfigd socket: " << message.msg_case();
   }
 
-  return {};
+  return return_message;
 }
 
 } // namespace aconfigd
