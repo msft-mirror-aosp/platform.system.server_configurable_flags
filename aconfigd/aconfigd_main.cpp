@@ -32,6 +32,14 @@ static int aconfigd_init() {
     return 1;
   }
 
+  // TODO: remove this check once b/330134027 is fixed. This is temporary as android
+  // on chrome os vm does not have /metadata partition at the moment.
+  DIR* dir = opendir("/metadata/aconfig");
+  if (!dir) {
+    return {};
+  }
+  closedir(dir);
+
   // clear boot dir to start fresh at each boot
   auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
   if (!remove_result.ok()) {
@@ -94,13 +102,15 @@ static int aconfigd_start() {
     }
     auto msg = std::string(buffer, num_bytes);
 
-    auto handle_result = HandleSocketRequest(msg);
-    if (!handle_result.ok()) {
-      LOG(ERROR) << "failed to handle socket request: " << handle_result.error();
+    auto return_msg_result = HandleSocketRequest(msg);
+    auto return_msg = std::string();
+    if (!return_msg_result.ok()) {
+      LOG(ERROR) << "failed to handle socket request: " << return_msg_result.error();
+      return_msg = return_msg_result.error().message();
+    } else {
+      return_msg = *return_msg_result;
     }
 
-    auto return_msg =
-        std::string(handle_result.ok() ? "" : handle_result.error().message());
     auto num = TEMP_FAILURE_RETRY(
         send(client_fd, return_msg.c_str(), return_msg.size(), 0));
     if (num != static_cast<long>(return_msg.size())) {
