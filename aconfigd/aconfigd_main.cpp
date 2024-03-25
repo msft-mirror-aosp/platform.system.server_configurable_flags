@@ -32,6 +32,14 @@ static int aconfigd_init() {
     return 1;
   }
 
+  // TODO: remove this check once b/330134027 is fixed. This is temporary as android
+  // on chrome os vm does not have /metadata partition at the moment.
+  DIR* dir = opendir("/metadata/aconfig");
+  if (!dir) {
+    return {};
+  }
+  closedir(dir);
+
   // clear boot dir to start fresh at each boot
   auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
   if (!remove_result.ok()) {
