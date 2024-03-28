@@ -18,6 +18,7 @@
 
 #include <string>
 #include <android-base/result.h>
+#include <aconfigd.pb.h>
 
 namespace android {
   namespace aconfigd {
@@ -32,7 +33,8 @@ namespace android {
     base::Result<void> InitializePlatformStorage();
 
     /// Handle incoming messages to aconfigd socket
-    base::Result<std::string> HandleSocketRequest(const std::string& msg);
+    void HandleSocketRequest(const StorageRequestMessage& message,
+                             StorageReturnMessage& return_message);
 
     /// Initialize in memory aconfig storage records
     base::Result<void> InitializeInMemoryStorageRecords();
