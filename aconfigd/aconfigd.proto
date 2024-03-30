@@ -17,7 +17,8 @@
 syntax = "proto2";
 option optimize_for = LITE_RUNTIME;
 
-message StorageMessage {
+// incoming request to aconfigd
+message StorageRequestMessage {
   // new storage notification
   message NewStorageMessage {
     optional string container = 1;
@@ -35,8 +36,8 @@ message StorageMessage {
 
   // query persistent flag value
   message FlagQueryMessage {
-    optional string package_name = 2;
-    optional string flag_name = 3;
+    optional string package_name = 1;
+    optional string flag_name = 2;
   }
 
   oneof msg {
@@ -44,4 +45,30 @@ message StorageMessage {
     FlagOverrideMessage flag_override_message = 2;
     FlagQueryMessage flag_query_message = 3;
   };
+}
+
+message StorageRequestMessages {
+  repeated StorageRequestMessage msgs = 1;
+}
+
+// aconfigd return to client
+message StorageReturnMessage {
+  message NewStorageReturnMessage {}
+
+  message FlagOverrideReturnMessage {}
+
+  message FlagQueryReturnMessage {
+    optional string flag_value = 1;
+  }
+
+  oneof msg {
+    NewStorageReturnMessage new_storage_message = 1;
+    FlagOverrideReturnMessage flag_override_message = 2;
+    FlagQueryReturnMessage flag_query_message = 3;
+    string error_message = 4;
+  };
+}
+
+message StorageReturnMessages {
+  repeated StorageReturnMessage msgs = 1;
 }

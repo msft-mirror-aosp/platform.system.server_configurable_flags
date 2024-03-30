@@ -26,7 +26,6 @@
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
 #include <protos/aconfig_storage_metadata.pb.h>
-#include <aconfigd.pb.h>
 
 #include "aconfigd_util.h"
 #include "aconfigd.h"
@@ -453,15 +452,10 @@ Result<void> InitializePlatformStorage() {
 }
 
 /// Handle incoming messages to aconfigd socket
-Result<std::string> HandleSocketRequest(const std::string& msg) {
-  auto message = StorageMessage{};
-  if (!message.ParseFromString(msg)) {
-    return Error() << "Could not parse message from aconfig storage init socket";
-  }
-
-  auto return_message = std::string();
+void HandleSocketRequest(const StorageRequestMessage& message,
+                         StorageReturnMessage& return_message) {
   switch (message.msg_case()) {
-    case StorageMessage::kNewStorageMessage: {
+    case StorageRequestMessage::kNewStorageMessage: {
       LOG(INFO) << "received a new storage request";
       auto msg = message.new_storage_message();
       auto result = AddNewStorage(msg.container(),
@@ -469,37 +463,46 @@ Result<std::string> HandleSocketRequest(const std::string& msg) {
                                   msg.flag_map(),
                                   msg.flag_value());
       if (!result.ok()) {
-        return Error() << result.error();
+        auto* errmsg = return_message.mutable_error_message();
+        *errmsg = result.error().message();
+      } else {
+        return_message.mutable_new_storage_message();
       }
       break;
     }
-    case StorageMessage::kFlagOverrideMessage: {
+    case StorageRequestMessage::kFlagOverrideMessage: {
       LOG(INFO) << "received a flag override request";
       auto msg = message.flag_override_message();
       auto result = UpdateBooleanFlagValue(msg.package_name(),
                                            msg.flag_name(),
                                            msg.flag_value());
       if (!result.ok()) {
-        return Error() << result.error();
+        auto* errmsg = return_message.mutable_error_message();
+        *errmsg = result.error().message();
+      } else {
+        return_message.mutable_flag_override_message();
       }
       break;
     }
-    case StorageMessage::kFlagQueryMessage: {
+    case StorageRequestMessage::kFlagQueryMessage: {
       LOG(INFO) << "received a flag query request";
       auto msg = message.flag_query_message();
       auto result = GetBooleanFlagValue(msg.package_name(),
                                         msg.flag_name());
       if (!result.ok()) {
-        return Error() << result.error();
+        auto* errmsg = return_message.mutable_error_message();
+        *errmsg = result.error().message();
+      } else {
+        auto return_msg = return_message.mutable_flag_query_message();
+        return_msg->set_flag_value(*result ? "true" : "false");
       }
-      return_message = *result ? "true" : "false";
       break;
     }
     default:
-      return Error() << "Unknown message type from aconfigd socket: " << message.msg_case();
+      auto* errmsg = return_message.mutable_error_message();
+      *errmsg = "Unknown message type from aconfigd socket";
+      break;
   }
-
-  return return_message;
 }
 
 } // namespace aconfigd

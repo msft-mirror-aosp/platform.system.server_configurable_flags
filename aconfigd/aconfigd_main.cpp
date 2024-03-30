@@ -102,18 +102,30 @@ static int aconfigd_start() {
     }
     auto msg = std::string(buffer, num_bytes);
 
-    auto return_msg_result = HandleSocketRequest(msg);
-    auto return_msg = std::string();
-    if (!return_msg_result.ok()) {
-      LOG(ERROR) << "failed to handle socket request: " << return_msg_result.error();
-      return_msg = return_msg_result.error().message();
-    } else {
-      return_msg = *return_msg_result;
+    auto messages = StorageRequestMessages{};
+    if (!messages.ParseFromString(msg)) {
+      LOG(ERROR) << "Could not parse message from aconfig storage init socket";
+      continue;
+    }
+
+    auto return_messages = StorageReturnMessages();
+    for (auto& msg : messages.msgs()) {
+      auto* return_msg = return_messages.add_msgs();
+      HandleSocketRequest(msg, *return_msg);
+      if (!return_msg->has_error_message()) {
+        LOG(ERROR) << "failed to handle socket request: " << return_msg->error_message();
+      }
+    }
+
+    auto return_content = std::string();
+    if (!return_messages.SerializeToString(&return_content)) {
+      LOG(ERROR) << "failed to serialize return messages to string";
+      continue;
     }
 
     auto num = TEMP_FAILURE_RETRY(
-        send(client_fd, return_msg.c_str(), return_msg.size(), 0));
-    if (num != static_cast<long>(return_msg.size())) {
+        send(client_fd, return_content.c_str(), return_content.size(), 0));
+    if (num != static_cast<long>(return_content.size())) {
       PLOG(ERROR) << "failed to send return message";
     }
   }
