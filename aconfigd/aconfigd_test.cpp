@@ -63,14 +63,14 @@ base::Result<base::unique_fd> connect_aconfigd_socket() {
 }
 
 // send a message to aconfigd socket, and capture return message
-base::Result<std::string> send_message(const StorageMessage& message) {
+base::Result<StorageReturnMessages> send_message(const StorageRequestMessages& messages) {
   auto sock_fd = connect_aconfigd_socket();
   if (!sock_fd.ok()) {
     return Error() << sock_fd.error();
   }
 
   auto message_string = std::string();
-  if (!message.SerializeToString(&message_string)) {
+  if (!messages.SerializeToString(&message_string)) {
     return Error() << "failed to serialize pb to string";
   }
 
@@ -80,50 +80,60 @@ base::Result<std::string> send_message(const StorageMessage& message) {
     return ErrnoError() << "send() failed";
   }
 
-  char buffer[1280] = {};
+  char buffer[kBufferSize] = {};
   auto num_bytes = TEMP_FAILURE_RETRY(recv(*sock_fd, buffer, sizeof(buffer), 0));
   if (num_bytes < 0) {
     return ErrnoError() << "recv() failed";
   }
 
-  return std::string(buffer, num_bytes);
+  auto return_messages = StorageReturnMessages{};
+  if (!return_messages.ParseFromString(std::string(buffer, num_bytes))) {
+    return Error() << "failed to parse string into proto";
+  }
+
+  return return_messages;
 }
 
-base::Result<std::string> send_new_storage_message() {
-  auto message = StorageMessage{};
-  auto msg = message.mutable_new_storage_message();
+base::Result<StorageReturnMessages> send_new_storage_message() {
+  auto messages = StorageRequestMessages{};
+  auto* message = messages.add_msgs();
+  auto* msg = message->mutable_new_storage_message();
   auto test_dir = base::GetExecutableDirectory();
   msg->set_container("mockup");
   msg->set_package_map(test_dir + "/tests/package.map");
   msg->set_flag_map(test_dir + "/tests/flag.map");
   msg->set_flag_value(test_dir + "/tests/flag.val");
-  return send_message(message);
+  return send_message(messages);
 }
 
-base::Result<std::string> send_flag_override_message(const std::string& package,
-                                                     const std::string& flag,
-                                                     const std::string& value) {
-  auto message = StorageMessage{};
-  auto msg = message.mutable_flag_override_message();
+base::Result<StorageReturnMessages> send_flag_override_message(const std::string& package,
+                                                               const std::string& flag,
+                                                               const std::string& value) {
+  auto messages = StorageRequestMessages{};
+  auto* message = messages.add_msgs();
+  auto* msg = message->mutable_flag_override_message();
   msg->set_package_name(package);
   msg->set_flag_name(flag);
   msg->set_flag_value(value);
-  return send_message(message);
+  return send_message(messages);
 }
 
-base::Result<std::string> send_flag_query_message(const std::string& package,
-                                                  const std::string& flag) {
-  auto message = StorageMessage{};
-  auto msg = message.mutable_flag_query_message();
+base::Result<StorageReturnMessages> send_flag_query_message(const std::string& package,
+                                                            const std::string& flag) {
+  auto messages = StorageRequestMessages{};
+  auto* message = messages.add_msgs();
+  auto* msg = message->mutable_flag_query_message();
   msg->set_package_name(package);
   msg->set_flag_name(flag);
-  return send_message(message);
+  return send_message(messages);
 }
 
 TEST(aconfigd_socket, new_storage_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
-  ASSERT_TRUE(new_storage_result->empty());
+  ASSERT_EQ(new_storage_result->msgs_size(), 1);
+  auto return_message = new_storage_result->msgs(0);
+  ASSERT_TRUE(return_message.has_new_storage_message());
 
   auto pb_file = "/metadata/aconfig/boot/available_storage_file_records.pb";
   auto records_pb = storage_records_pb();
@@ -144,27 +154,76 @@ TEST(aconfigd_socket, new_storage_message) {
 TEST(aconfigd_socket, flag_override_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
-  ASSERT_EQ(*new_storage_result, "");
+  ASSERT_EQ(new_storage_result->msgs_size(), 1);
+  auto return_message = new_storage_result->msgs(0);
+  ASSERT_TRUE(return_message.has_new_storage_message());
 
   auto flag_override_result = send_flag_override_message(
       "com.android.aconfig.storage.test_1", "enabled_rw", "true");
   ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
-  ASSERT_EQ(*flag_override_result, "");
+  ASSERT_EQ(flag_override_result->msgs_size(), 1);
+  return_message = flag_override_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_override_message());
 
   auto flag_query_result = send_flag_query_message(
       "com.android.aconfig.storage.test_1", "enabled_rw");
   ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
-  ASSERT_EQ(*flag_query_result, "true");
+  ASSERT_EQ(flag_query_result->msgs_size(), 1);
+  return_message = flag_query_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_query_message());
+  auto query = return_message.flag_query_message();
+  ASSERT_EQ(query.flag_value(), "true");
 
   flag_override_result = send_flag_override_message(
       "com.android.aconfig.storage.test_1", "enabled_rw", "false");
   ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
-  ASSERT_EQ(*flag_override_result, "");
+  ASSERT_EQ(flag_override_result->msgs_size(), 1);
+  return_message = flag_override_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_override_message());
 
   flag_query_result = send_flag_query_message(
       "com.android.aconfig.storage.test_1", "enabled_rw");
   ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
-  ASSERT_EQ(*flag_query_result, "false");
+  ASSERT_EQ(flag_query_result->msgs_size(), 1);
+  return_message = flag_query_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_query_message());
+  query = return_message.flag_query_message();
+  ASSERT_EQ(query.flag_value(), "false");
+}
+
+TEST(aconfigd_socket, invalid_flag_override_message) {
+  auto new_storage_result = send_new_storage_message();
+  ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
+  ASSERT_EQ(new_storage_result->msgs_size(), 1);
+  auto return_message = new_storage_result->msgs(0);
+  ASSERT_TRUE(return_message.has_new_storage_message());
+
+  auto flag_override_result = send_flag_override_message(
+      "com.android.aconfig.storage.test_1", "unknown", "true");
+  ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
+  ASSERT_EQ(flag_override_result->msgs_size(), 1);
+  return_message = flag_override_result->msgs(0);
+  ASSERT_TRUE(return_message.has_error_message());
+  auto errmsg = return_message.error_message();
+  ASSERT_TRUE(errmsg.find("unknown is not found in mockup") != std::string::npos);
+}
+
+TEST(aconfigd_socket, invalid_flag_query_message) {
+  auto new_storage_result = send_new_storage_message();
+  ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
+  ASSERT_EQ(new_storage_result->msgs_size(), 1);
+  auto return_message = new_storage_result->msgs(0);
+  ASSERT_TRUE(return_message.has_new_storage_message());
+
+  auto flag_query_result = send_flag_query_message(
+      "com.android.aconfig.storage.test_1", "unknown");
+  ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
+  ASSERT_EQ(flag_query_result->msgs_size(), 1);
+  return_message = flag_query_result->msgs(0);
+  ASSERT_TRUE(return_message.has_error_message());
+  auto query = return_message.flag_query_message();
+  auto errmsg = return_message.error_message();
+  ASSERT_TRUE(errmsg.find("unknown is not found in mockup") != std::string::npos);
 }
 
 } // namespace aconfigd
