@@ -16,6 +16,7 @@ cc_binary {
     "liblog",
   ],
   init_rc: ["aconfigd.rc"],
+  ldflags: ["-Wl,--allow-multiple-definition"],
 }
 
 cc_test {
