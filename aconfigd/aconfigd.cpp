@@ -52,6 +52,7 @@ struct StorageRecord {
   std::string package_map;
   std::string flag_map;
   std::string flag_val;
+  std::string flag_info;
   int timestamp;
 
   StorageRecord() = default;
@@ -62,6 +63,7 @@ struct StorageRecord {
       , package_map(entry.package_map())
       , flag_map(entry.flag_map())
       , flag_val(entry.flag_val())
+      , flag_info(entry.flag_info())
       , timestamp(entry.timestamp())
   {}
 };
@@ -122,6 +124,7 @@ Result<void> WritePersistentStorageRecordsToFile() {
     record_pb->set_package_map(entry.package_map);
     record_pb->set_flag_map(entry.flag_map);
     record_pb->set_flag_val(entry.flag_val);
+    record_pb->set_flag_info(entry.flag_info);
     record_pb->set_timestamp(entry.timestamp);
   }
 
@@ -138,19 +141,27 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   // create boot copy
   auto src_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
   auto dst_value_file = std::string("/metadata/aconfig/boot/") + container + ".val";
+  auto src_info_file = std::string("/metadata/aconfig/flags/") + container + ".info";
+  auto dst_info_file = std::string("/metadata/aconfig/boot/") + container + ".info";
 
   // If the boot copy already exists, do nothing. Never update the boot copy, the boot
   // copy should be boot stable. So in the following scenario: a container storage
   // file boot copy is created, then an updated container is mounted along side existing
   // container. In this case, we should update the persistent storage file copy. But
   // never touch the current boot copy.
-  if (FileExists(dst_value_file)) {
+  if (FileExists(dst_value_file) || FileExists(dst_info_file)) {
     return {};
   }
 
   auto copy_result = CopyFile(src_value_file, dst_value_file, 0444);
   if (!copy_result.ok()) {
     return Error() << "CopyFile failed for " << src_value_file << " :"
+                   << copy_result.error();
+  }
+
+  copy_result = CopyFile(src_info_file, dst_info_file, 0444);
+  if (!copy_result.ok()) {
+    return Error() << "CopyFile failed for " << src_info_file << " :"
                    << copy_result.error();
   }
 
@@ -168,6 +179,7 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   record_pb->set_package_map(entry.package_map);
   record_pb->set_flag_map(entry.flag_map);
   record_pb->set_flag_val(dst_value_file);
+  record_pb->set_flag_info(dst_info_file);
   record_pb->set_timestamp(entry.timestamp);
 
   auto write_result =  WriteStorageRecordsPbToFile(
@@ -208,6 +220,15 @@ Result<bool> HandleContainerUpdate(const std::string& container,
       return Error() << "Failed to get storage version: " << version_result.error();
     }
 
+    // create flag info file
+    auto flag_info_file = std::string("/metadata/aconfig/flags/") + container + ".info";
+    auto create_result = aconfig_storage::create_flag_info(
+        package_file, flag_file, flag_info_file);
+    if (!create_result.ok()) {
+      return Error() << "Failed to create flag info file for container " << container
+                     << ": " << create_result.error();
+    }
+
     // add to in memory storage file records
     auto& record = persist_storage_records[container];
     record.version = *version_result;
@@ -215,6 +236,7 @@ Result<bool> HandleContainerUpdate(const std::string& container,
     record.package_map = package_file;
     record.flag_map = flag_file;
     record.flag_val = target_value_file;
+    record.flag_info = flag_info_file;
     record.timestamp = *timestamp;
 
     // write to persistent storage records file
