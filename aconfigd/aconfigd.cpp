@@ -272,7 +272,7 @@ Result<std::string> FindContainer(const std::string& package) {
                      << ": " << mapped_file.error();
     }
 
-    auto offset = aconfig_storage::get_package_offset(*mapped_file, package);
+    auto offset = aconfig_storage::get_package_read_context(*mapped_file, package);
     if (!offset.ok()) {
       return Error() << "Failed to get offset for package " << package
                      << " from package map of " << entry.container() << " :"
@@ -300,18 +300,18 @@ Result<uint32_t> FindBooleanFlagOffset(const std::string& container,
                    << ": " << package_map.error();
   }
 
-  auto pkg_offset = aconfig_storage::get_package_offset(*package_map, package);
-  if (!pkg_offset.ok()) {
+  auto package_context = aconfig_storage::get_package_read_context(*package_map, package);
+  if (!package_context.ok()) {
     return Error() << "Failed to get package offset of " << package
-                   << " in " << container  << " :" << pkg_offset.error();
+                   << " in " << container  << " :" << package_context.error();
   }
 
-  if (!pkg_offset->package_exists) {
+  if (!package_context->package_exists) {
     return Error() << package << " is not found in " << container;
   }
 
-  uint32_t package_id = pkg_offset->package_id;
-  uint32_t package_offset = pkg_offset->boolean_offset;
+  uint32_t package_id = package_context->package_id;
+  uint32_t package_start_index = package_context->boolean_start_index;
 
   auto flag_map = aconfig_storage::get_mapped_file(
       container, aconfig_storage::StorageFileType::flag_map);
@@ -320,18 +320,17 @@ Result<uint32_t> FindBooleanFlagOffset(const std::string& container,
                    << ": " << flag_map.error();
   }
 
-  auto flg_offset = aconfig_storage::get_flag_offset(*flag_map, package_id, flag);
-  if (!flg_offset.ok()) {
+  auto flag_context = aconfig_storage::get_flag_read_context(*flag_map, package_id, flag);
+  if (!flag_context.ok()) {
     return Error() << "Failed to get flag offset of " << flag
-                   << " in " << container  << " :" << flg_offset.error();
+                   << " in " << container  << " :" << flag_context.error();
   }
 
-  if (!flg_offset->flag_exists) {
+  if (!flag_context->flag_exists) {
     return Error() << flag << " is not found in " << container;
   }
 
-  uint16_t flag_offset = flg_offset->flag_id;
-  return package_offset + flag_offset;
+  return package_start_index + flag_context->flag_index;
 }
 
 /// Add a new storage
