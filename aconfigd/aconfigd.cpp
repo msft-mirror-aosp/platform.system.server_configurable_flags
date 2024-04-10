@@ -330,7 +330,7 @@ Result<uint32_t> FindBooleanFlagOffset(const std::string& container,
     return Error() << flag << " is not found in " << container;
   }
 
-  uint16_t flag_offset = flg_offset->flag_offset;
+  uint16_t flag_offset = flg_offset->flag_id;
   return package_offset + flag_offset;
 }
 
