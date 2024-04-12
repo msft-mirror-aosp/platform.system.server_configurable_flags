@@ -370,7 +370,8 @@ Result<void> UpdateBooleanFlagValue(const std::string& package_name,
                    << flag_name << " flag value offset: " << offset_result.error();
   }
 
-  auto mapped_file = aconfig_storage::get_mapped_flag_value_file(container);
+  auto mapped_file = aconfig_storage::get_mutable_mapped_file(
+      container, aconfig_storage::StorageFileType::flag_val);
   if (!mapped_file.ok()) {
     return Error() << "Failed to map flag value file for " << container
                    << ": " << mapped_file.error();
@@ -404,7 +405,8 @@ Result<bool> GetBooleanFlagValue(const std::string& package_name,
                    << flag_name << " flag value offset: " << offset_result.error();
   }
 
-  auto mapped_file_result = aconfig_storage::get_mapped_flag_value_file(container);
+  auto mapped_file_result = aconfig_storage::get_mutable_mapped_file(
+      container, aconfig_storage::StorageFileType::flag_val);
   if (!mapped_file_result.ok()) {
     return Error() << "Failed to map flag value file for " << container
                    << ": " << mapped_file_result.error();
