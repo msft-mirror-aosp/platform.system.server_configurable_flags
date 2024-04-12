@@ -173,6 +173,9 @@ TEST(aconfigd_socket, flag_override_message) {
   ASSERT_TRUE(return_message.has_flag_query_message());
   auto query = return_message.flag_query_message();
   ASSERT_EQ(query.flag_value(), "true");
+  ASSERT_EQ(query.is_sticky(), false);
+  ASSERT_EQ(query.is_readwrite(), true);
+  ASSERT_EQ(query.has_override(), true);
 
   flag_override_result = send_flag_override_message(
       "com.android.aconfig.storage.test_1", "enabled_rw", "false");
@@ -189,9 +192,12 @@ TEST(aconfigd_socket, flag_override_message) {
   ASSERT_TRUE(return_message.has_flag_query_message());
   query = return_message.flag_query_message();
   ASSERT_EQ(query.flag_value(), "false");
+  ASSERT_EQ(query.is_sticky(), false);
+  ASSERT_EQ(query.is_readwrite(), true);
+  ASSERT_EQ(query.has_override(), true);
 }
 
-TEST(aconfigd_socket, invalid_flag_override_message) {
+TEST(aconfigd_socket, nonexist_flag_override_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
   ASSERT_EQ(new_storage_result->msgs_size(), 1);
@@ -208,7 +214,7 @@ TEST(aconfigd_socket, invalid_flag_override_message) {
   ASSERT_TRUE(errmsg.find("unknown is not found in mockup") != std::string::npos);
 }
 
-TEST(aconfigd_socket, invalid_flag_query_message) {
+TEST(aconfigd_socket, nonexist_flag_query_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
   ASSERT_EQ(new_storage_result->msgs_size(), 1);
