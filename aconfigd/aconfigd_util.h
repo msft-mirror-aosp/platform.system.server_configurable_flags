@@ -17,6 +17,7 @@
 #include <string>
 #include <android-base/result.h>
 #include <sys/stat.h>
+#include <protos/aconfig_storage_metadata.pb.h>
 
 namespace android {
   namespace aconfigd {
@@ -32,6 +33,15 @@ namespace android {
 
   /// Check if file exists
   bool FileExists(const std::string& file);
+
+  /// Read persistent aconfig storage records pb file
+  base::Result<aconfig_storage_metadata::storage_files> ReadStorageRecordsPb(
+      const std::string& pb_file);
+
+  /// Write aconfig storage records protobuf to file
+  base::Result<void> WriteStorageRecordsPbToFile(
+      const aconfig_storage_metadata::storage_files& records_pb,
+      const std::string& file_name);
 
   }// namespace aconfig
 } // namespace android
