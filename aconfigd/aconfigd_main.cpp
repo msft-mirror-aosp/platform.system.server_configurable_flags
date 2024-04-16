@@ -19,6 +19,7 @@
 #include <cutils/sockets.h>
 #include <sys/un.h>
 
+#include "com_android_aconfig_new_storage.h"
 #include "aconfigd.h"
 #include "aconfigd_util.h"
 
@@ -135,6 +136,10 @@ static int aconfigd_start() {
 }
 
 int main(int argc, char** argv) {
+  if (!com::android::aconfig_new_storage::enable_aconfig_storage_daemon()) {
+    // return 0;
+  }
+
   android::base::InitLogging(argv, &android::base::KernelLogger);
 
   if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {

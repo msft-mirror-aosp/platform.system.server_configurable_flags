@@ -34,7 +34,7 @@ message StorageRequestMessage {
     optional string flag_value = 3;
   }
 
-  // query persistent flag value
+  // query persistent flag value and info
   message FlagQueryMessage {
     optional string package_name = 1;
     optional string flag_name = 2;
@@ -59,6 +59,9 @@ message StorageReturnMessage {
 
   message FlagQueryReturnMessage {
     optional string flag_value = 1;
+    optional bool is_sticky = 2;
+    optional bool is_readwrite = 3;
+    optional bool has_override = 4;
   }
 
   oneof msg {
