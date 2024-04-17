@@ -29,6 +29,14 @@ namespace android {
     /// Socket message buffer size
     static constexpr size_t kBufferSize = 4096;
 
+    /// Persistent storage records pb file full path
+    static constexpr char kPersistentStorageRecordsFileName[] =
+        "/metadata/aconfig/persistent_storage_file_records.pb";
+
+    /// Persistent storage records pb file full path
+    static constexpr char kAvailableStorageRecordsFileName[] =
+        "/metadata/aconfig/boot/available_storage_file_records.pb";
+
     /// Initialize platform RO partition flag storages
     base::Result<void> InitializePlatformStorage();
 
