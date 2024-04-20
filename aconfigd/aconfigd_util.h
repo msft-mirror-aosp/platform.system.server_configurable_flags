@@ -15,9 +15,10 @@
  */
 
 #include <string>
-#include <android-base/result.h>
 #include <sys/stat.h>
-#include <protos/aconfig_storage_metadata.pb.h>
+
+#include <android-base/result.h>
+#include <android-base/file.h>
 
 namespace android {
   namespace aconfigd {
@@ -26,7 +27,9 @@ namespace android {
   base::Result<void> RemoveFilesInDir(const std::string& dir);
 
   /// Copy file
-  base::Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mode);
+  base::Result<void> CopyFile(const std::string& src,
+                              const std::string& dst,
+                              mode_t mode);
 
   /// Get a file's timestamp
   base::Result<int> GetFileTimeStamp(const std::string& file);
@@ -34,14 +37,43 @@ namespace android {
   /// Check if file exists
   bool FileExists(const std::string& file);
 
-  /// Read persistent aconfig storage records pb file
-  base::Result<aconfig_storage_metadata::storage_files> ReadStorageRecordsPb(
-      const std::string& pb_file);
+  /// Read protobuf from file
+  template <typename T>
+  base::Result<T> ReadPbFromFile(const std::string& pb_file) {
+    auto pb = T();
+    if (FileExists(pb_file)) {
+      auto content = std::string();
+      if (!base::ReadFileToString(pb_file, &content)) {
+        return base::ErrnoError() << "ReadFileToString() failed";
+      }
 
-  /// Write aconfig storage records protobuf to file
-  base::Result<void> WriteStorageRecordsPbToFile(
-      const aconfig_storage_metadata::storage_files& records_pb,
-      const std::string& file_name);
+      if (!pb.ParseFromString(content)) {
+        return base::ErrnoError() << "Unable to parse to protobuf";
+      }
+    }
+    return pb;
+  }
+
+  /// Write protobuf to file
+  template <typename T>
+  base::Result<void> WritePbToFile(const T& pb,
+                                   const std::string& file_name,
+                                   mode_t mode = 0644) {
+    auto content = std::string();
+    if (!pb.SerializeToString(&content)) {
+      return base::ErrnoError() << "Unable to serialize protobuf to string";
+    }
+
+    if (!base::WriteStringToFile(content, file_name)) {
+      return base::ErrnoError() << "WriteStringToFile() failed";
+    }
+
+    if (chmod(file_name.c_str(), mode) == -1) {
+      return base::ErrnoError() << "chmod() failed";
+    };
+
+    return {};
+  }
 
   }// namespace aconfig
 } // namespace android

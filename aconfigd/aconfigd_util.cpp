@@ -16,12 +16,11 @@
 
 #include <memory>
 #include <vector>
+#include <sys/sendfile.h>
+#include <fts.h>
 
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
-#include <android-base/file.h>
-#include <sys/sendfile.h>
-#include <fts.h>
 
 #include "aconfigd_util.h"
 
@@ -102,43 +101,6 @@ Result<int> GetFileTimeStamp(const std::string& file) {
 bool FileExists(const std::string& file) {
   struct stat st;
   return stat(file.c_str(), &st) == 0 ? true : false;
-}
-
-/// Read persistent aconfig storage records pb file
-Result<aconfig_storage_metadata::storage_files> ReadStorageRecordsPb(
-    const std::string& pb_file) {
-  auto records = aconfig_storage_metadata::storage_files();
-  if (FileExists(pb_file)) {
-    auto content = std::string();
-    if (!ReadFileToString(pb_file, &content)) {
-      return ErrnoError() << "ReadFileToString failed";
-    }
-
-    if (!records.ParseFromString(content)) {
-      return ErrnoError() << "Unable to parse storage records protobuf";
-    }
-  }
-  return records;
-}
-
-/// Write aconfig storage records protobuf to file
-Result<void> WriteStorageRecordsPbToFile(
-    const aconfig_storage_metadata::storage_files& records_pb,
-    const std::string& file_name) {
-  auto content = std::string();
-  if (!records_pb.SerializeToString(&content)) {
-    return ErrnoError() << "Unable to serialize storage records protobuf";
-  }
-
-  if (!WriteStringToFile(content, file_name)) {
-    return ErrnoError() << "WriteStringToFile failed";
-  }
-
-  if (chmod(file_name.c_str(), 0644) == -1) {
-    return ErrnoError() << "chmod() failed";
-  };
-
-  return {};
 }
 
 } // namespace aconfig
