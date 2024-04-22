@@ -137,7 +137,7 @@ static int aconfigd_start() {
 
 int main(int argc, char** argv) {
   if (!com::android::aconfig_new_storage::enable_aconfig_storage_daemon()) {
-    // return 0;
+    return 0;
   }
 
   android::base::InitLogging(argv, &android::base::KernelLogger);
