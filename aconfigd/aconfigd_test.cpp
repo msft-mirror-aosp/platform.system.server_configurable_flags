@@ -153,7 +153,7 @@ TEST(aconfigd_socket, new_storage_message) {
   ASSERT_TRUE(found);
 }
 
-TEST(aconfigd_socket, flag_override_message) {
+TEST(aconfigd_socket, flag_server_override_message) {
   auto new_storage_result = send_new_storage_message();
   ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
   ASSERT_EQ(new_storage_result->msgs_size(), 1);
@@ -175,10 +175,11 @@ TEST(aconfigd_socket, flag_override_message) {
   return_message = flag_query_result->msgs(0);
   ASSERT_TRUE(return_message.has_flag_query_message());
   auto query = return_message.flag_query_message();
-  ASSERT_EQ(query.flag_value(), "true");
-  ASSERT_EQ(query.is_sticky(), false);
+  ASSERT_EQ(query.server_flag_value(), "true");
+  ASSERT_EQ(query.local_flag_value(), "");
   ASSERT_EQ(query.is_readwrite(), true);
-  ASSERT_EQ(query.has_override(), true);
+  ASSERT_EQ(query.has_server_override(), true);
+  ASSERT_EQ(query.has_local_override(), false);
 
   flag_override_result = send_flag_override_message(
       "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
@@ -194,10 +195,60 @@ TEST(aconfigd_socket, flag_override_message) {
   return_message = flag_query_result->msgs(0);
   ASSERT_TRUE(return_message.has_flag_query_message());
   query = return_message.flag_query_message();
-  ASSERT_EQ(query.flag_value(), "false");
-  ASSERT_EQ(query.is_sticky(), false);
+  ASSERT_EQ(query.server_flag_value(), "false");
+  ASSERT_EQ(query.local_flag_value(), "");
   ASSERT_EQ(query.is_readwrite(), true);
-  ASSERT_EQ(query.has_override(), true);
+  ASSERT_EQ(query.has_server_override(), true);
+  ASSERT_EQ(query.has_local_override(), false);
+}
+
+TEST(aconfigd_socket, flag_local_override_message) {
+  auto new_storage_result = send_new_storage_message();
+  ASSERT_TRUE(new_storage_result.ok()) << new_storage_result.error();
+  ASSERT_EQ(new_storage_result->msgs_size(), 1);
+  auto return_message = new_storage_result->msgs(0);
+  ASSERT_TRUE(return_message.has_new_storage_message());
+
+  auto flag_override_result = send_flag_override_message(
+      "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
+  ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
+  ASSERT_EQ(flag_override_result->msgs_size(), 1);
+  return_message = flag_override_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_override_message())
+      << return_message.error_message();
+
+  auto flag_query_result = send_flag_query_message(
+      "com.android.aconfig.storage.test_1", "disabled_rw");
+  ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
+  ASSERT_EQ(flag_query_result->msgs_size(), 1);
+  return_message = flag_query_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_query_message());
+  auto query = return_message.flag_query_message();
+  ASSERT_EQ(query.server_flag_value(), "false");
+  ASSERT_EQ(query.local_flag_value(), "true");
+  ASSERT_EQ(query.is_readwrite(), true);
+  ASSERT_EQ(query.has_server_override(), false);
+  ASSERT_EQ(query.has_local_override(), true);
+
+  flag_override_result = send_flag_override_message(
+      "com.android.aconfig.storage.test_1", "disabled_rw", "false", true);
+  ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
+  ASSERT_EQ(flag_override_result->msgs_size(), 1);
+  return_message = flag_override_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_override_message());
+
+  flag_query_result = send_flag_query_message(
+      "com.android.aconfig.storage.test_1", "disabled_rw");
+  ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
+  ASSERT_EQ(flag_query_result->msgs_size(), 1);
+  return_message = flag_query_result->msgs(0);
+  ASSERT_TRUE(return_message.has_flag_query_message());
+  query = return_message.flag_query_message();
+  ASSERT_EQ(query.server_flag_value(), "false");
+  ASSERT_EQ(query.local_flag_value(), "false");
+  ASSERT_EQ(query.is_readwrite(), true);
+  ASSERT_EQ(query.has_server_override(), false);
+  ASSERT_EQ(query.has_local_override(), true);
 }
 
 TEST(aconfigd_socket, nonexist_flag_override_message) {
@@ -208,12 +259,21 @@ TEST(aconfigd_socket, nonexist_flag_override_message) {
   ASSERT_TRUE(return_message.has_new_storage_message());
 
   auto flag_override_result = send_flag_override_message(
-      "com.android.aconfig.storage.test_1", "unknown", "true", false);
+      "unknown", "enabled_rw", "true", false);
   ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
   ASSERT_EQ(flag_override_result->msgs_size(), 1);
   return_message = flag_override_result->msgs(0);
   ASSERT_TRUE(return_message.has_error_message());
   auto errmsg = return_message.error_message();
+  ASSERT_TRUE(errmsg.find("Failed to find package unknown") != std::string::npos);
+
+  flag_override_result = send_flag_override_message(
+      "com.android.aconfig.storage.test_1", "unknown", "true", false);
+  ASSERT_TRUE(flag_override_result.ok()) << flag_override_result.error();
+  ASSERT_EQ(flag_override_result->msgs_size(), 1);
+  return_message = flag_override_result->msgs(0);
+  ASSERT_TRUE(return_message.has_error_message());
+  errmsg = return_message.error_message();
   ASSERT_TRUE(errmsg.find("Failed to find flag unknown") != std::string::npos);
 }
 
@@ -225,13 +285,23 @@ TEST(aconfigd_socket, nonexist_flag_query_message) {
   ASSERT_TRUE(return_message.has_new_storage_message());
 
   auto flag_query_result = send_flag_query_message(
-      "com.android.aconfig.storage.test_1", "unknown");
+      "unknown", "enabled_rw");
   ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
   ASSERT_EQ(flag_query_result->msgs_size(), 1);
   return_message = flag_query_result->msgs(0);
   ASSERT_TRUE(return_message.has_error_message());
   auto query = return_message.flag_query_message();
   auto errmsg = return_message.error_message();
+  ASSERT_TRUE(errmsg.find("Failed to find package unknown") != std::string::npos);
+
+ flag_query_result = send_flag_query_message(
+      "com.android.aconfig.storage.test_1", "unknown");
+  ASSERT_TRUE(flag_query_result.ok()) << flag_query_result.error();
+  ASSERT_EQ(flag_query_result->msgs_size(), 1);
+  return_message = flag_query_result->msgs(0);
+  ASSERT_TRUE(return_message.has_error_message());
+  query = return_message.flag_query_message();
+  errmsg = return_message.error_message();
   ASSERT_TRUE(errmsg.find("Failed to find flag unknown") != std::string::npos);
 }
 
