@@ -16,34 +16,23 @@
 
 #include <string>
 #include <unordered_map>
-
 #include <dirent.h>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
-#include <cutils/sockets.h>
-
-#include <aconfig_storage/aconfig_storage_read_api.hpp>
-#include <aconfig_storage/aconfig_storage_write_api.hpp>
 #include <protos/aconfig_storage_metadata.pb.h>
 
+#include "aconfigd_mapped_file.h"
 #include "aconfigd_util.h"
 #include "aconfigd.h"
 
 using storage_records_pb = android::aconfig_storage_metadata::storage_files;
 using storage_record_pb = android::aconfig_storage_metadata::storage_file_info;
 using namespace android::base;
+using namespace aconfig_storage;
 
 namespace android {
 namespace aconfigd {
-
-/// Persistent storage records pb file full path
-static constexpr char kPersistentStorageRecordsFileName[] =
-    "/metadata/aconfig/persistent_storage_file_records.pb";
-
-/// Persistent storage records pb file full path
-static constexpr char kAvailableStorageRecordsFileName[] =
-    "/metadata/aconfig/boot/available_storage_file_records.pb";
 
 /// In memory data structure for storage file locations for each container
 struct StorageRecord {
@@ -52,6 +41,8 @@ struct StorageRecord {
   std::string package_map;
   std::string flag_map;
   std::string flag_val;
+  std::string flag_info;
+  std::string local_overrides;
   int timestamp;
 
   StorageRecord() = default;
@@ -62,6 +53,8 @@ struct StorageRecord {
       , package_map(entry.package_map())
       , flag_map(entry.flag_map())
       , flag_val(entry.flag_val())
+      , flag_info(entry.flag_info())
+      , local_overrides(entry.local_overrides())
       , timestamp(entry.timestamp())
   {}
 };
@@ -72,45 +65,10 @@ using StorageRecords = std::unordered_map<std::string, StorageRecord>;
 /// In memory storage file records. Parsed from the pb.
 static StorageRecords persist_storage_records;
 
-/// In memory cache for package to container mapping
-static std::unordered_map<std::string, std::string> container_map;
+/// Mapped files manager
+static MappedFilesManager mapped_files_manager;
 
 namespace {
-
-/// Read persistent aconfig storage records pb file
-Result<storage_records_pb> ReadStorageRecordsPb(const std::string& pb_file) {
-  auto records = storage_records_pb();
-  if (FileExists(pb_file)) {
-    auto content = std::string();
-    if (!ReadFileToString(pb_file, &content)) {
-      return ErrnoError() << "ReadFileToString failed";
-    }
-
-    if (!records.ParseFromString(content)) {
-      return ErrnoError() << "Unable to parse storage records protobuf";
-    }
-  }
-  return records;
-}
-
-/// Write aconfig storage records protobuf to file
-Result<void> WriteStorageRecordsPbToFile(const storage_records_pb& records_pb,
-                                         const std::string& file_name) {
-  auto content = std::string();
-  if (!records_pb.SerializeToString(&content)) {
-    return ErrnoError() << "Unable to serialize storage records protobuf";
-  }
-
-  if (!WriteStringToFile(content, file_name)) {
-    return ErrnoError() << "WriteStringToFile failed";
-  }
-
-  if (chmod(file_name.c_str(), 0644) == -1) {
-    return ErrnoError() << "chmod failed";
-  };
-
-  return {};
-}
 
 /// Write in memory aconfig storage records to the persistent pb file
 Result<void> WritePersistentStorageRecordsToFile() {
@@ -122,11 +80,48 @@ Result<void> WritePersistentStorageRecordsToFile() {
     record_pb->set_package_map(entry.package_map);
     record_pb->set_flag_map(entry.flag_map);
     record_pb->set_flag_val(entry.flag_val);
+    record_pb->set_flag_info(entry.flag_info);
+    record_pb->set_local_overrides(entry.local_overrides);
     record_pb->set_timestamp(entry.timestamp);
   }
 
-  return WriteStorageRecordsPbToFile(records_pb, kPersistentStorageRecordsFileName);
+  return WritePbToFile<storage_records_pb>(records_pb, kPersistentStorageRecordsFileName);
 }
+
+Result<void> ApplyLocalOverridesToBootCopy(const std::string& container,
+                                           const std::string& flag_value_file) {
+  auto const& entry = persist_storage_records[container];
+  auto overrides_pb = ReadPbFromFile<LocalFlagOverrides>(entry.local_overrides);
+  if (!overrides_pb.ok()) {
+    return Error() << "Unable to read local overrides pb: " << overrides_pb.error();
+  }
+
+  // change boot flag value file to 0644 to allow write
+  if (chmod(flag_value_file.c_str(), 0644) == -1) {
+    return base::ErrnoError() << "chmod() failed";
+  };
+
+  auto& mapped_files = mapped_files_manager.get_mapped_files(container);
+  auto applied_pb = mapped_files.ApplyLocalOverride(flag_value_file, *overrides_pb);
+  if (!applied_pb.ok()) {
+    return base::Error() << "Failed to apply local override: " << applied_pb.error();
+  }
+
+  // change boot flag value file back to 0444
+  if (chmod(flag_value_file.c_str(), 0444) == -1) {
+    return base::ErrnoError() << "chmod() failed";
+  };
+
+  if (overrides_pb->overrides_size() != applied_pb->overrides_size()) {
+    auto result = WritePbToFile<LocalFlagOverrides>(*applied_pb, entry.local_overrides);
+    if (!result.ok()) {
+      return base::Error() << result.error();
+    }
+  }
+
+  return {};
+}
+
 
 /// Create boot flag value copy for a container
 Result<void> CreateBootSnapshotForContainer(const std::string& container) {
@@ -138,13 +133,15 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   // create boot copy
   auto src_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
   auto dst_value_file = std::string("/metadata/aconfig/boot/") + container + ".val";
+  auto src_info_file = std::string("/metadata/aconfig/flags/") + container + ".info";
+  auto dst_info_file = std::string("/metadata/aconfig/boot/") + container + ".info";
 
   // If the boot copy already exists, do nothing. Never update the boot copy, the boot
   // copy should be boot stable. So in the following scenario: a container storage
   // file boot copy is created, then an updated container is mounted along side existing
   // container. In this case, we should update the persistent storage file copy. But
   // never touch the current boot copy.
-  if (FileExists(dst_value_file)) {
+  if (FileExists(dst_value_file) || FileExists(dst_info_file)) {
     return {};
   }
 
@@ -154,9 +151,20 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
                    << copy_result.error();
   }
 
+  auto apply_result = ApplyLocalOverridesToBootCopy(container, dst_value_file);
+  if (!apply_result.ok()) {
+    return Error() << "Failed to apply local overrides: " << apply_result.error();
+  }
+
+  copy_result = CopyFile(src_info_file, dst_info_file, 0444);
+  if (!copy_result.ok()) {
+    return Error() << "CopyFile failed for " << src_info_file << " :"
+                   << copy_result.error();
+  }
+
   // update available storage records pb
   auto const& entry = persist_storage_records[container];
-  auto records_pb = ReadStorageRecordsPb(kAvailableStorageRecordsFileName);
+  auto records_pb = ReadPbFromFile<storage_records_pb>(kAvailableStorageRecordsFileName);
   if (!records_pb.ok()) {
     return Error() << "Unable to read available storage records: "
                    << records_pb.error();
@@ -168,9 +176,10 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   record_pb->set_package_map(entry.package_map);
   record_pb->set_flag_map(entry.flag_map);
   record_pb->set_flag_val(dst_value_file);
+  record_pb->set_flag_info(dst_info_file);
   record_pb->set_timestamp(entry.timestamp);
 
-  auto write_result =  WriteStorageRecordsPbToFile(
+  auto write_result =  WritePbToFile<storage_records_pb>(
       *records_pb, kAvailableStorageRecordsFileName);
   if (!write_result.ok()) {
     return Error() << "Failed to write available storage records: "
@@ -180,11 +189,11 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   return {};
 }
 
-/// Handle container update, returns if container has been updated
-Result<bool> HandleContainerUpdate(const std::string& container,
-                                   const std::string& package_file,
-                                   const std::string& flag_file,
-                                   const std::string& value_file) {
+/// Add a container storage if not existed, otherwise update if needed
+Result<bool> AddOrUpdateStorageForContainer(const std::string& container,
+                                            const std::string& package_file,
+                                            const std::string& flag_file,
+                                            const std::string& value_file) {
   auto timestamp = GetFileTimeStamp(value_file);
   if (!timestamp.ok()) {
     return Error() << "Failed to get timestamp of " << value_file
@@ -203,18 +212,27 @@ Result<bool> HandleContainerUpdate(const std::string& container,
                      << copy_result.error();
     }
 
-    auto version_result = aconfig_storage::get_storage_file_version(value_file);
-    if (!version_result.ok()) {
-      return Error() << "Failed to get storage version: " << version_result.error();
+    auto version = get_storage_file_version(value_file);
+    if (!version.ok()) {
+      return Error() << "Failed to get storage version: " << version.error();
+    }
+
+    // create flag info file
+    auto flag_info_file = std::string("/metadata/aconfig/flags/") + container + ".info";
+    auto create_result = create_flag_info(package_file, flag_file, flag_info_file);
+    if (!create_result.ok()) {
+      return Error() << "Failed to create flag info file for container " << container
+                     << ": " << create_result.error();
     }
 
     // add to in memory storage file records
     auto& record = persist_storage_records[container];
-    record.version = *version_result;
+    record.version = *version;
     record.container = container;
     record.package_map = package_file;
     record.flag_map = flag_file;
     record.flag_val = target_value_file;
+    record.flag_info = flag_info_file;
     record.timestamp = *timestamp;
 
     // write to persistent storage records file
@@ -230,182 +248,145 @@ Result<bool> HandleContainerUpdate(const std::string& container,
   return false;
 }
 
-/// Find the container name given flag package name
-Result<std::string> FindContainer(const std::string& package) {
-  if (container_map.count(package)) {
-    return container_map[package];
+/// Handle new storage request
+void HandleNewStorage(const StorageRequestMessage::NewStorageMessage& msg,
+                      StorageReturnMessage& return_msg) {
+  auto updated = AddOrUpdateStorageForContainer(
+      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
+  if (!updated.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = "Failed to add or update container " + msg.container()
+              + ": " + updated.error().message();
+    return;
   }
 
-  auto records_pb = ReadStorageRecordsPb(kAvailableStorageRecordsFileName);
-  if (!records_pb.ok()) {
-    return Error() << "Unable to read available storage records: "
-                   << records_pb.error();
+  auto copy = CreateBootSnapshotForContainer(msg.container());
+  if (!copy.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = "Failed to make a boot copy for " + msg.container()
+              + ": " + copy.error().message();
+    return;
   }
 
-  for (auto& entry : records_pb->files()) {
-    auto mapped_file = aconfig_storage::get_mapped_file(
-        entry.container(), aconfig_storage::StorageFileType::package_map);
-    if (!mapped_file.ok()) {
-      return Error() << "Failed to map file for container " << entry.container()
-                     << ": " << mapped_file.error();
-    }
-
-    auto offset = aconfig_storage::get_package_offset(*mapped_file, package);
-    if (!offset.ok()) {
-      return Error() << "Failed to get offset for package " << package
-                     << " from package map of " << entry.container() << " :"
-                     << offset.error();
-    }
-
-    if (offset->package_exists) {
-      container_map[package] = entry.container();
-      return entry.container();
-    }
-  }
-
-  return Error() << "package not found";
+  return_msg.mutable_new_storage_message();
 }
 
-/// Find boolean flag offset in flag value file
-Result<uint32_t> FindBooleanFlagOffset(const std::string& container,
-                                       const std::string& package,
-                                       const std::string& flag) {
-
-  auto package_map = aconfig_storage::get_mapped_file(
-      container, aconfig_storage::StorageFileType::package_map);
-  if (!package_map.ok()) {
-    return Error() << "Failed to map package map file for " << container
-                   << ": " << package_map.error();
+/// Handle a local flag override request
+Result<void> HandleLocalFlagOverride(const std::string& package,
+                                     const std::string& flag,
+                                     const std::string& flag_value) {
+  auto container = mapped_files_manager.GetContainer(package);
+  if (!container.ok()) {
+      return container.error();
   }
 
-  auto pkg_offset = aconfig_storage::get_package_offset(*package_map, package);
-  if (!pkg_offset.ok()) {
-    return Error() << "Failed to get package offset of " << package
-                   << " in " << container  << " :" << pkg_offset.error();
+  auto pb_file = persist_storage_records[*container].local_overrides;
+  auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+  if (!pb.ok()) {
+    return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
   }
 
-  if (!pkg_offset->package_exists) {
-    return Error() << package << " is not found in " << container;
+  bool exist = false;
+  for (auto& entry : *(pb->mutable_overrides())) {
+    if (entry.package_name() == package && entry.flag_name() == flag) {
+      if (entry.flag_value() == flag_value) {
+        return {};
+      }
+      exist = true;
+      entry.set_flag_value(flag_value);
+      break;
+    }
   }
 
-  uint32_t package_id = pkg_offset->package_id;
-  uint32_t package_offset = pkg_offset->boolean_offset;
+  if (!exist) {
+    // add a new override entry to pb
+    auto new_override = pb->add_overrides();
+    new_override->set_package_name(package);
+    new_override->set_flag_name(flag);
+    new_override->set_flag_value(flag_value);
 
-  auto flag_map = aconfig_storage::get_mapped_file(
-      container, aconfig_storage::StorageFileType::flag_map);
-  if (!flag_map.ok()) {
-    return Error() << "Failed to map flag map file for " << container
-                   << ": " << flag_map.error();
+    // mark override sticky
+    auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
+    auto update = mapped_files.MarkStickyOverride(package, flag);
+    if (!update.ok()) {
+      return Error() << "Failed to mark flag " << package + "." + flag << " sticky: "
+                     << update.error();
+    }
   }
 
-  auto flg_offset = aconfig_storage::get_flag_offset(*flag_map, package_id, flag);
-  if (!flg_offset.ok()) {
-    return Error() << "Failed to get flag offset of " << flag
-                   << " in " << container  << " :" << flg_offset.error();
-  }
-
-  if (!flg_offset->flag_exists) {
-    return Error() << flag << " is not found in " << container;
-  }
-
-  uint16_t flag_offset = flg_offset->flag_offset;
-  return package_offset + flag_offset;
-}
-
-/// Add a new storage
-Result<void> AddNewStorage(const std::string& container,
-                           const std::string& package_map,
-                           const std::string& flag_map,
-                           const std::string& flag_val) {
-  auto updated_result = HandleContainerUpdate(
-      container, package_map, flag_map, flag_val);
-  if (!updated_result.ok()) {
-    return Error() << "Failed to update container " << container
-                   << ":" << updated_result.error();
-  }
-
-  auto copy_result = CreateBootSnapshotForContainer(container);
-  if (!copy_result.ok()) {
-    return Error() << "Failed to make a boot copy: " << copy_result.error();
+  auto write = WritePbToFile<LocalFlagOverrides>(*pb, pb_file);
+  if (!write.ok()) {
+    return Error() << "Failed to write pb to " << pb_file << ": " << write.error();
   }
 
   return {};
 }
 
-/// Update persistent boolean flag value
-Result<void> UpdateBooleanFlagValue(const std::string& package_name,
-                                    const std::string& flag_name,
-                                    const std::string& flag_value) {
-  auto container_result = FindContainer(package_name);
-  if (!container_result.ok()) {
-    return Error() << "Failed for find container for package " << package_name
-                   << ": " << container_result.error();
+/// Handle a server flag override request
+Result<void> HandleServerFlagOverride(const std::string& package,
+                                      const std::string& flag,
+                                      const std::string& flag_value) {
+  auto container = mapped_files_manager.GetContainer(package);
+  if (!container.ok()) {
+      return container.error();
   }
-  auto container = *container_result;
-
-  auto offset_result = FindBooleanFlagOffset(container, package_name, flag_name);
-  if (!offset_result.ok()) {
-    return Error() << "Failed to obtain " << package_name << "."
-                   << flag_name << " flag value offset: " << offset_result.error();
-  }
-
-  auto mapped_file = aconfig_storage::get_mapped_flag_value_file(container);
-  if (!mapped_file.ok()) {
-    return Error() << "Failed to map flag value file for " << container
-                   << ": " << mapped_file.error();
-  }
-
-  if (flag_value != "true" && flag_value != "false") {
-    return Error() << "Invalid boolean flag value, it should be true|false";
-  }
-
-  auto update_result = aconfig_storage::set_boolean_flag_value(
-      *mapped_file, *offset_result, flag_value == "true");
-  if (!update_result.ok()) {
-    return Error() << "Failed to update flag value: " << update_result.error();
-  }
-
-  return {};
+  auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
+  return  mapped_files.UpdatePersistFlag(package, flag, flag_value);
 }
 
-/// Query persistent boolean flag value
-Result<bool> GetBooleanFlagValue(const std::string& package_name,
-                                 const std::string& flag_name) {
-  auto container_result = FindContainer(package_name);
-  if (!container_result.ok()) {
-    return Error() << "Failed for find container for package " << package_name
-                   << ": " << container_result.error();
-  }
-  auto container = *container_result;
-  auto offset_result = FindBooleanFlagOffset(container, package_name, flag_name);
-  if (!offset_result.ok()) {
-    return Error() << "Failed to obtain " << package_name << "."
-                   << flag_name << " flag value offset: " << offset_result.error();
-  }
-
-  auto mapped_file_result = aconfig_storage::get_mapped_flag_value_file(container);
-  if (!mapped_file_result.ok()) {
-    return Error() << "Failed to map flag value file for " << container
-                   << ": " << mapped_file_result.error();
+/// Handle a flag override request
+void HandleFlagOverride(const StorageRequestMessage::FlagOverrideMessage& msg,
+                        StorageReturnMessage& return_msg) {
+  auto result = Result<void>();
+  if (msg.is_local()) {
+    result = HandleLocalFlagOverride(msg.package_name(),
+                                     msg.flag_name(),
+                                     msg.flag_value());
+  } else {
+    result = HandleServerFlagOverride(msg.package_name(),
+                                      msg.flag_name(),
+                                      msg.flag_value());
   }
 
-  auto ro_mapped_file = aconfig_storage::MappedStorageFile();
-  ro_mapped_file.file_ptr = mapped_file_result->file_ptr;
-  ro_mapped_file.file_size = mapped_file_result->file_size;
-  auto value_result = aconfig_storage::get_boolean_flag_value(
-      ro_mapped_file, *offset_result);
-  if (!value_result.ok()) {
-    return Error() << "Failed to get flag value: " << value_result.error();
+  if (!result.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = result.error().message();
+  } else {
+    return_msg.mutable_flag_override_message();
+  }
+}
+
+/// Handle a flag query request
+void HandlePersistFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
+                            StorageReturnMessage& return_msg) {
+  auto container = mapped_files_manager.GetContainer(msg.package_name());
+  if (!container.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = container.error().message();
+    return;
   }
 
-  return *value_result;
+  auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
+  auto result = mapped_files.GetPersistFlagValueAndInfo(
+      msg.package_name(), msg.flag_name());
+
+  if (!result.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = result.error().message();
+  } else {
+    auto result_msg = return_msg.mutable_flag_query_message();
+    result_msg->set_flag_value(result->first);
+    result_msg->set_is_sticky(result->second & FlagInfoBit::IsSticky);
+    result_msg->set_is_readwrite(result->second & FlagInfoBit::IsReadWrite);
+    result_msg->set_has_override(result->second & FlagInfoBit::HasOverride);
+  }
 }
 
 } // namespace
 
 /// Initialize in memory aconfig storage records
 Result<void> InitializeInMemoryStorageRecords() {
-  auto records_pb = ReadStorageRecordsPb(kPersistentStorageRecordsFileName);
+  auto records_pb = ReadPbFromFile<storage_records_pb>(kPersistentStorageRecordsFileName);
   if (!records_pb.ok()) {
     return Error() << "Unable to read persistent storage records: "
                    << records_pb.error();
@@ -436,15 +417,15 @@ Result<void> InitializePlatformStorage() {
       continue;
     }
 
-    auto updated_result = HandleContainerUpdate(
+    auto updated = AddOrUpdateStorageForContainer(
         container, package_file, flag_file, value_file);
-    if (!updated_result.ok()) {
-      return Error() << updated_result.error();
+    if (!updated.ok()) {
+      return Error() << updated.error();
     }
 
-    auto copy_result = CreateBootSnapshotForContainer(container);
-    if (!copy_result.ok()) {
-      return Error() << copy_result.error();
+    auto copied = CreateBootSnapshotForContainer(container);
+    if (!copied.ok()) {
+      return Error() << copied.error();
     }
   }
 
@@ -458,44 +439,19 @@ void HandleSocketRequest(const StorageRequestMessage& message,
     case StorageRequestMessage::kNewStorageMessage: {
       LOG(INFO) << "received a new storage request";
       auto msg = message.new_storage_message();
-      auto result = AddNewStorage(msg.container(),
-                                  msg.package_map(),
-                                  msg.flag_map(),
-                                  msg.flag_value());
-      if (!result.ok()) {
-        auto* errmsg = return_message.mutable_error_message();
-        *errmsg = result.error().message();
-      } else {
-        return_message.mutable_new_storage_message();
-      }
+      HandleNewStorage(msg, return_message);
       break;
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       LOG(INFO) << "received a flag override request";
       auto msg = message.flag_override_message();
-      auto result = UpdateBooleanFlagValue(msg.package_name(),
-                                           msg.flag_name(),
-                                           msg.flag_value());
-      if (!result.ok()) {
-        auto* errmsg = return_message.mutable_error_message();
-        *errmsg = result.error().message();
-      } else {
-        return_message.mutable_flag_override_message();
-      }
+      HandleFlagOverride(msg, return_message);
       break;
     }
     case StorageRequestMessage::kFlagQueryMessage: {
       LOG(INFO) << "received a flag query request";
       auto msg = message.flag_query_message();
-      auto result = GetBooleanFlagValue(msg.package_name(),
-                                        msg.flag_name());
-      if (!result.ok()) {
-        auto* errmsg = return_message.mutable_error_message();
-        *errmsg = result.error().message();
-      } else {
-        auto return_msg = return_message.mutable_flag_query_message();
-        return_msg->set_flag_value(*result ? "true" : "false");
-      }
+      HandlePersistFlagQuery(msg, return_message);
       break;
     }
     default:

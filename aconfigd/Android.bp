@@ -5,8 +5,10 @@ cc_binary {
     "aconfigd.proto",
     "aconfigd_main.cpp",
     "aconfigd_util.cpp",
+    "aconfigd_mapped_file.cpp"
   ],
   static_libs: [
+    "libaconfig_new_storage_flags",
     "libaconfig_storage_read_api_cc",
     "libaconfig_storage_write_api_cc",
     "libaconfig_storage_protos_cc",
@@ -16,6 +18,19 @@ cc_binary {
     "liblog",
   ],
   init_rc: ["aconfigd.rc"],
+  ldflags: ["-Wl,--allow-multiple-definition"],
+}
+
+aconfig_declarations {
+    name: "aconfig_new_storage_flags",
+    package: "com.android.aconfig_new_storage",
+    container: "system",
+    srcs: ["new_aconfig_storage.aconfig"],
+}
+
+cc_aconfig_library {
+    name: "libaconfig_new_storage_flags",
+    aconfig_declarations: "aconfig_new_storage_flags",
 }
 
 cc_test {
@@ -26,6 +41,7 @@ cc_test {
     ],
     static_libs: [
         "libgmock",
+        "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
         "libaconfig_storage_protos_cc",

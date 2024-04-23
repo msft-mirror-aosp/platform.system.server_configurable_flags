@@ -15,8 +15,10 @@
  */
 
 #include <string>
-#include <android-base/result.h>
 #include <sys/stat.h>
+
+#include <android-base/result.h>
+#include <android-base/file.h>
 
 namespace android {
   namespace aconfigd {
@@ -25,13 +27,53 @@ namespace android {
   base::Result<void> RemoveFilesInDir(const std::string& dir);
 
   /// Copy file
-  base::Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mode);
+  base::Result<void> CopyFile(const std::string& src,
+                              const std::string& dst,
+                              mode_t mode);
 
   /// Get a file's timestamp
   base::Result<int> GetFileTimeStamp(const std::string& file);
 
   /// Check if file exists
   bool FileExists(const std::string& file);
+
+  /// Read protobuf from file
+  template <typename T>
+  base::Result<T> ReadPbFromFile(const std::string& pb_file) {
+    auto pb = T();
+    if (FileExists(pb_file)) {
+      auto content = std::string();
+      if (!base::ReadFileToString(pb_file, &content)) {
+        return base::ErrnoError() << "ReadFileToString() failed";
+      }
+
+      if (!pb.ParseFromString(content)) {
+        return base::ErrnoError() << "Unable to parse to protobuf";
+      }
+    }
+    return pb;
+  }
+
+  /// Write protobuf to file
+  template <typename T>
+  base::Result<void> WritePbToFile(const T& pb,
+                                   const std::string& file_name,
+                                   mode_t mode = 0644) {
+    auto content = std::string();
+    if (!pb.SerializeToString(&content)) {
+      return base::ErrnoError() << "Unable to serialize protobuf to string";
+    }
+
+    if (!base::WriteStringToFile(content, file_name)) {
+      return base::ErrnoError() << "WriteStringToFile() failed";
+    }
+
+    if (chmod(file_name.c_str(), mode) == -1) {
+      return base::ErrnoError() << "chmod() failed";
+    };
+
+    return {};
+  }
 
   }// namespace aconfig
 } // namespace android

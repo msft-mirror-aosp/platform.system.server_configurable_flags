@@ -16,18 +16,15 @@
 
 #include <memory>
 #include <vector>
-
-#include <android-base/logging.h>
-#include <android-base/unique_fd.h>
-#include <android-base/file.h>
 #include <sys/sendfile.h>
 #include <fts.h>
 
+#include <android-base/logging.h>
+#include <android-base/unique_fd.h>
+
 #include "aconfigd_util.h"
 
-using ::android::base::Result;
-using ::android::base::Error;
-using ::android::base::ErrnoError;
+using namespace android::base;
 
 namespace android {
 namespace aconfigd {
