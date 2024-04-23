@@ -283,10 +283,11 @@ namespace android {
         }
 
         // update flag info
-        update_result = set_flag_has_override(
+        update_result = set_flag_has_server_override(
             **flag_info_file, value_type, flag_index, true);
         if (!update_result.ok()) {
-          return base::Error() << "Failed to update flag has override: " << update_result.error();
+          return base::Error() << "Failed to update flag has server override: "
+                               << update_result.error();
         }
         break;
       }
@@ -297,9 +298,10 @@ namespace android {
     return {};
   }
 
-  /// mark this flag has sticky override
-  base::Result<void> MappedFiles::MarkStickyOverride(const std::string& package,
-                                                     const std::string& flag) {
+  /// mark this flag has local override
+  base::Result<void> MappedFiles::MarkHasLocalOverride(const std::string& package,
+                                                       const std::string& flag,
+                                                       bool has_local_override) {
     // find flag value type and index
     auto type_and_index = GetFlagTypeAndIndex(package, flag);
     if (!type_and_index.ok()) {
@@ -319,18 +321,11 @@ namespace android {
       return base::Error() << flag_info_file.error();
     }
 
-    // update flag info, has override
-    auto update_result = set_flag_has_override(
-        **flag_info_file, value_type, flag_index, true);
+    // update flag info, has local override
+    auto update_result = set_flag_has_local_override(
+        **flag_info_file, value_type, flag_index, has_local_override);
     if (!update_result.ok()) {
-      return base::Error() << "Failed to update flag has override: " << update_result.error();
-    }
-
-    // update flag info, is sticky
-    update_result = set_flag_is_sticky(
-        **flag_info_file, value_type, flag_index, true);
-    if (!update_result.ok()) {
-      return base::Error() << "Failed to update flag is sticky: " << update_result.error();
+      return base::Error() << "Failed to update flag has local override: " << update_result.error();
     }
 
     return {};
