@@ -55,9 +55,10 @@ namespace android {
                                            const std::string& flag,
                                            const std::string& value);
 
-      /// mark this flag has sticky override
-      base::Result<void> MarkStickyOverride(const std::string& package,
-                                            const std::string& flag);
+      /// mark this flag has local override
+      base::Result<void> MarkHasLocalOverride(const std::string& package,
+                                              const std::string& flag,
+                                              bool has_local_override);
 
       /// get persistent flag value and info
       base::Result<std::pair<std::string, uint8_t>> GetPersistFlagValueAndInfo(
