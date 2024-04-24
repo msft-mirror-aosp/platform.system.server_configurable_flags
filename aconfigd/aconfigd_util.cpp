@@ -103,5 +103,10 @@ bool FileExists(const std::string& file) {
   return stat(file.c_str(), &st) == 0 ? true : false;
 }
 
+bool FileNonZeroSize(const std::string& file) {
+  struct stat st;
+  return stat(file.c_str(), &st) == 0 ? st.st_size > 0 : false;
+}
+
 } // namespace aconfig
 } // namespace android
