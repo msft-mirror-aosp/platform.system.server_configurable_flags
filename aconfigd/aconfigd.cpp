@@ -205,7 +205,8 @@ Result<bool> AddOrUpdateStorageForContainer(const std::string& container,
   auto it = persist_storage_records.find(container);
   if (it == persist_storage_records.end() || it->second.timestamp != *timestamp) {
     // copy flag value file
-    auto target_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
+    auto flags_dir = std::string("/metadata/aconfig/flags/");
+    auto target_value_file = flags_dir + container + ".val";
     auto copy_result = CopyFile(value_file, target_value_file, 0644);
     if (!copy_result.ok()) {
       return Error() << "CopyFile failed for " << value_file << " :"
@@ -233,6 +234,7 @@ Result<bool> AddOrUpdateStorageForContainer(const std::string& container,
     record.flag_map = flag_file;
     record.flag_val = target_value_file;
     record.flag_info = flag_info_file;
+    record.local_overrides = flags_dir + container + "_local_overrides.pb";
     record.timestamp = *timestamp;
 
     // write to persistent storage records file
@@ -277,7 +279,8 @@ Result<void> HandleLocalFlagOverride(const std::string& package,
                                      const std::string& flag_value) {
   auto container = mapped_files_manager.GetContainer(package);
   if (!container.ok()) {
-      return container.error();
+      return Error() << "Failed to find package " << package << ": "
+                     << container.error();
   }
 
   auto pb_file = persist_storage_records[*container].local_overrides;
@@ -307,7 +310,7 @@ Result<void> HandleLocalFlagOverride(const std::string& package,
 
     // mark override sticky
     auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
-    auto update = mapped_files.MarkStickyOverride(package, flag);
+    auto update = mapped_files.MarkHasLocalOverride(package, flag, true);
     if (!update.ok()) {
       return Error() << "Failed to mark flag " << package + "." + flag << " sticky: "
                      << update.error();
@@ -328,7 +331,8 @@ Result<void> HandleServerFlagOverride(const std::string& package,
                                       const std::string& flag_value) {
   auto container = mapped_files_manager.GetContainer(package);
   if (!container.ok()) {
-      return container.error();
+      return Error() << "Failed to find package " << package << ": "
+                     << container.error();
   }
   auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
   return  mapped_files.UpdatePersistFlag(package, flag, flag_value);
@@ -362,10 +366,29 @@ void HandlePersistFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
   auto container = mapped_files_manager.GetContainer(msg.package_name());
   if (!container.ok()) {
     auto* errmsg = return_msg.mutable_error_message();
-    *errmsg = container.error().message();
+    *errmsg = "Failed to find package " + msg.package_name() + ": "
+              + container.error().message();
     return;
   }
 
+  // get flag local override value if local override exists
+  auto const& entry = persist_storage_records[*container];
+  auto overrides_pb = ReadPbFromFile<LocalFlagOverrides>(entry.local_overrides);
+  if (!overrides_pb.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = "Unable to read local overrides pb: " + overrides_pb.error().message();
+    return;
+  }
+
+  auto local_override_value = std::string();
+  for (auto& entry : overrides_pb->overrides()) {
+    if (msg.package_name() == entry.package_name()
+        && msg.flag_name() == entry.flag_name()) {
+      local_override_value = entry.flag_value();
+    }
+  }
+
+  // get flag server override value
   auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
   auto result = mapped_files.GetPersistFlagValueAndInfo(
       msg.package_name(), msg.flag_name());
@@ -375,10 +398,100 @@ void HandlePersistFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
     *errmsg = result.error().message();
   } else {
     auto result_msg = return_msg.mutable_flag_query_message();
-    result_msg->set_flag_value(result->first);
-    result_msg->set_is_sticky(result->second & FlagInfoBit::IsSticky);
+    result_msg->set_server_flag_value(result->first);
+    result_msg->set_local_flag_value(local_override_value);
+    result_msg->set_has_server_override(result->second & FlagInfoBit::HasServerOverride);
     result_msg->set_is_readwrite(result->second & FlagInfoBit::IsReadWrite);
-    result_msg->set_has_override(result->second & FlagInfoBit::HasOverride);
+    result_msg->set_has_local_override(result->second & FlagInfoBit::HasLocalOverride);
+  }
+}
+
+/// Remove all local overrides
+Result<void> RemoveAllLocalOverrides() {
+  for (auto const& [container, record] : persist_storage_records) {
+    auto overrides_pb = ReadPbFromFile<LocalFlagOverrides>(record.local_overrides);
+    if (!overrides_pb.ok()) {
+      return Error() << "Unable to read local overrides pb: " << overrides_pb.error();
+    }
+
+    for (auto& entry : overrides_pb->overrides()) {
+      auto& mapped_files = mapped_files_manager.get_mapped_files(container);
+      auto update = mapped_files.MarkHasLocalOverride(
+          entry.package_name(), entry.flag_name(), false);
+      if (!update.ok()) {
+        return Error() << "Failed to mark flag " << entry.package_name() + "." +
+            entry.flag_name() << " sticky: " << update.error();
+      }
+    }
+
+    if (unlink(record.local_overrides.c_str()) == -1) {
+      return ErrnoError() << "unlink() failed for " << record.local_overrides;
+    }
+  }
+
+  return {};
+}
+
+/// Remove a local override
+Result<void> RemoveFlagLocalOverride(const std::string& package,
+                                     const std::string& flag) {
+  auto container = mapped_files_manager.GetContainer(package);
+  if (!container.ok()) {
+      return Error() << "Failed to find package " << package << ": "
+                     << container.error();
+  }
+
+  auto const& record = persist_storage_records[*container];
+  auto overrides_pb = ReadPbFromFile<LocalFlagOverrides>(record.local_overrides);
+  if (!overrides_pb.ok()) {
+    return Error() << "Unable to read local overrides pb: " << overrides_pb.error();
+  }
+
+  auto updated_overrides = LocalFlagOverrides();
+  for (auto entry : overrides_pb->overrides()) {
+    if (entry.package_name() == package && entry.flag_name() == flag) {
+      auto& mapped_files = mapped_files_manager.get_mapped_files(*container);
+      auto update = mapped_files.MarkHasLocalOverride(
+          entry.package_name(), entry.flag_name(), false);
+      if (!update.ok()) {
+        return Error() << "Failed to mark flag " << entry.package_name() + "." +
+            entry.flag_name() << " sticky: " << update.error();
+      }
+      continue;
+    }
+    auto kept_override = updated_overrides.add_overrides();
+    kept_override->set_package_name(entry.package_name());
+    kept_override->set_flag_name(entry.flag_name());
+    kept_override->set_flag_value(entry.flag_value());
+  }
+
+  if (updated_overrides.overrides_size() != overrides_pb->overrides_size()) {
+    auto result = WritePbToFile<LocalFlagOverrides>(
+        updated_overrides, record.local_overrides);
+    if (!result.ok()) {
+      return base::Error() << result.error();
+    }
+  }
+
+  return {};
+}
+
+/// Handle override removal request
+void HandleLocalOverrideRemoval(
+    const StorageRequestMessage::RemoveLocalOverrideMessage& msg,
+    StorageReturnMessage& return_msg) {
+  auto result = Result<void>();
+  if (msg.remove_all()) {
+    result = RemoveAllLocalOverrides();
+  } else {
+    result = RemoveFlagLocalOverride(msg.package_name(), msg.flag_name());
+  }
+
+  if (!result.ok()) {
+    auto* errmsg = return_msg.mutable_error_message();
+    *errmsg = result.error().message();
+  } else {
+    return_msg.mutable_remove_local_override_message();
   }
 }
 
@@ -452,6 +565,12 @@ void HandleSocketRequest(const StorageRequestMessage& message,
       LOG(INFO) << "received a flag query request";
       auto msg = message.flag_query_message();
       HandlePersistFlagQuery(msg, return_message);
+      break;
+    }
+    case StorageRequestMessage::kRemoveLocalOverrideMessage: {
+      LOG(INFO) << "received a local override removal request";
+      auto msg = message.remove_local_override_message();
+      HandleLocalOverrideRemoval(msg, return_message);
       break;
     }
     default:

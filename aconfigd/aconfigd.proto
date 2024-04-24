@@ -35,6 +35,13 @@ message StorageRequestMessage {
     optional bool is_local = 4;
   }
 
+  // request to remove local flag override
+  message RemoveLocalOverrideMessage {
+    optional bool remove_all = 1;
+    optional string package_name = 2;
+    optional string flag_name = 3;
+  }
+
   // query persistent flag value and info
   message FlagQueryMessage {
     optional string package_name = 1;
@@ -45,6 +52,7 @@ message StorageRequestMessage {
     NewStorageMessage new_storage_message = 1;
     FlagOverrideMessage flag_override_message = 2;
     FlagQueryMessage flag_query_message = 3;
+    RemoveLocalOverrideMessage remove_local_override_message = 4;
   };
 }
 
@@ -59,17 +67,21 @@ message StorageReturnMessage {
   message FlagOverrideReturnMessage {}
 
   message FlagQueryReturnMessage {
-    optional string flag_value = 1;
-    optional bool is_sticky = 2;
-    optional bool is_readwrite = 3;
-    optional bool has_override = 4;
+    optional string server_flag_value = 1;
+    optional string local_flag_value = 2;
+    optional bool has_server_override = 3;
+    optional bool is_readwrite = 4;
+    optional bool has_local_override = 5;
   }
+
+  message RemoveLocalOverrideReturnMessage {}
 
   oneof msg {
     NewStorageReturnMessage new_storage_message = 1;
     FlagOverrideReturnMessage flag_override_message = 2;
     FlagQueryReturnMessage flag_query_message = 3;
-    string error_message = 4;
+    RemoveLocalOverrideReturnMessage remove_local_override_message = 4;
+    string error_message = 5;
   };
 }
 
