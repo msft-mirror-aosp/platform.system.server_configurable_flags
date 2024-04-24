@@ -475,7 +475,7 @@ Result<void> InitializePlatformStorage() {
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
 
-    if (!FileExists(value_file)) {
+    if (!FileNonZeroSize(value_file)) {
       continue;
     }
 
