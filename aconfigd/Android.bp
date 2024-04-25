@@ -5,7 +5,8 @@ cc_binary {
     "aconfigd.proto",
     "aconfigd_main.cpp",
     "aconfigd_util.cpp",
-    "aconfigd_mapped_file.cpp"
+    "storage_files.cpp",
+    "storage_files_manager.cpp"
   ],
   static_libs: [
     "libaconfig_new_storage_flags",
