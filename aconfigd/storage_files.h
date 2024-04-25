@@ -36,7 +36,7 @@ namespace android {
       std::string flag_val;
       std::string flag_info;
       std::string local_overrides;
-      int timestamp;
+      uint64_t timestamp;
     };
 
     /// Mapped files for a container
@@ -63,22 +63,38 @@ namespace android {
       }
 
       /// set storage record
-      void SetStorageRecord(const StorageRecord& record) {
-        storage_record_ = record;
-      }
+      void SetStorageRecord(const StorageRecord& record);
+
+      /// return result for package and flag context
+      struct PackageFlagContext {
+        bool package_exists;
+        bool flag_exists;
+        aconfig_storage::FlagValueType value_type;
+        uint32_t flag_index;
+      };
+
+      /// Find package and flag context
+      base::Result<PackageFlagContext> GetPackageFlagContext(
+          const std::string& package, const std::string& flag);
 
       /// check if has package
       base::Result<bool> HasPackage(const std::string& package);
 
-      /// server flag override, update persistent flag value and info
-      base::Result<void> UpdatePersistFlag(const std::string& package,
-                                           const std::string& flag,
-                                           const std::string& value);
+      /// check if has flag
+      base::Result<bool> HasFlag(const std::string& package,
+                                 const std::string& flag);
 
-      /// mark this flag has local override
-      base::Result<void> MarkHasLocalOverride(const std::string& package,
-                                              const std::string& flag,
-                                              bool has_local_override);
+      /// server flag override, update persistent flag value
+      base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
+                                            const std::string& flag_value);
+
+      /// set has server override in flag info
+      base::Result<void> SetHasServerOverride(const PackageFlagContext& context,
+                                              bool has_server_override);
+
+      /// set has local override in flag info
+      base::Result<void> SetHasLocalOverride(const PackageFlagContext& context,
+                                             bool has_local_override);
 
       /// get persistent flag attribute
       base::Result<uint8_t> GetPersistFlagAttribute(const std::string& package,
@@ -117,16 +133,8 @@ namespace android {
       /// get persist flag info
       base::Result<const aconfig_storage::MutableMappedStorageFile*> GetPersistFlagInfo();
 
-      /// return result for flag type and index query
-      struct FlagTypeAndIndex {
-        bool flag_exists;
-        aconfig_storage::FlagValueType value_type;
-        uint32_t flag_index;
-      };
-
-      /// Find flag value type and global index
-      base::Result<FlagTypeAndIndex> GetFlagTypeAndIndex(
-          const std::string& package, const std::string& flag);
+      /// check if flag is read only
+      base::Result<bool> IsFlagReadOnly(const PackageFlagContext& context);
 
       private:
 
