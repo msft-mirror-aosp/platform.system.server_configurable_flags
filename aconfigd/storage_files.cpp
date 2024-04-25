@@ -15,58 +15,21 @@
  */
 
 #include <protos/aconfig_storage_metadata.pb.h>
+#include <android-base/logging.h>
 
 #include "aconfigd.h"
 #include "aconfigd_util.h"
-#include "aconfigd_mapped_file.h"
+#include "storage_files.h"
 
 using namespace aconfig_storage;
 
 namespace android {
   namespace aconfigd {
 
-  /// get mapped files for a container
-  MappedFiles& MappedFilesManager::get_mapped_files(
-      const std::string& container) {
-    if (mapped_files_.count(container) == 0) {
-      mapped_files_[container] = std::make_unique<MappedFiles>(container);
-    }
-    return *(mapped_files_[container]);
-  }
-
-  /// get container name given flag package name
-  base::Result<std::string> MappedFilesManager::GetContainer(
-      const std::string& package) {
-    if (package_to_container_.count(package)) {
-      return package_to_container_[package];
-    }
-
-    auto records_pb = ReadPbFromFile<aconfig_storage_metadata::storage_files>(
-        kAvailableStorageRecordsFileName);
-    if (!records_pb.ok()) {
-      return base::Error() << "Unable to read available storage records: "
-                           << records_pb.error();
-    }
-
-    for (auto& entry : records_pb->files()) {
-      auto& mapped_file = get_mapped_files(entry.container());
-      auto has_flag = mapped_file.HasPackage(package);
-      if (!has_flag.ok()) {
-        return base::Error() << has_flag.error();
-      }
-
-      if (*has_flag) {
-        package_to_container_[package] = entry.container();
-        return entry.container();
-      }
-    }
-
-    return base::Error() << "container not found";
-  }
-
   /// constructor
-  MappedFiles::MappedFiles(const std::string& container)
+  StorageFiles::StorageFiles(const std::string& container, const StorageRecord& record)
       : container_(container)
+      , storage_record_(record)
       , package_map_(nullptr)
       , flag_map_(nullptr)
       , persist_flag_val_(nullptr)
@@ -74,16 +37,17 @@ namespace android {
   }
 
   /// move constructor
-  MappedFiles::MappedFiles(MappedFiles&& rhs) {
+  StorageFiles::StorageFiles(StorageFiles&& rhs) {
     if (this != &rhs) {
       *this = std::move(rhs);
     }
   }
 
   /// move assignment
-  MappedFiles& MappedFiles::operator=(MappedFiles&& rhs) {
+  StorageFiles& StorageFiles::operator=(StorageFiles&& rhs) {
     if (this != &rhs) {
       container_ = rhs.container_;
+      storage_record_ = std::move(rhs.storage_record_);
       package_map_ = std::move(rhs.package_map_);
       flag_map_ = std::move(rhs.flag_map_);
       persist_flag_val_ = std::move(rhs.persist_flag_val_);
@@ -93,25 +57,40 @@ namespace android {
   }
 
   /// map a storage file
-  base::Result<MappedStorageFile> MappedFiles::MapStorageFile(StorageFileType file_type) {
+  base::Result<MappedStorageFile> StorageFiles::MapStorageFile(StorageFileType file_type) {
     switch (file_type) {
       case StorageFileType::package_map:
+        if (storage_record_.package_map.empty()) {
+          return Error() << "Missing package map file";
+        }
+        return map_storage_file(storage_record_.package_map);
+        break;
       case StorageFileType::flag_map:
-      case StorageFileType::flag_info:
-        return get_mapped_file(container_, file_type);
+        if (storage_record_.flag_map.empty()) {
+          return Error() << "Missing flag map file";
+        }
+        return map_storage_file(storage_record_.flag_map);
         break;
       default:
-        return base::Error() << "Unsupported storage file type to map";
+        return base::Error() << "Unsupported storage file type for MappedStorageFile";
     }
   }
 
   /// map a mutable storage file
-  base::Result<MutableMappedStorageFile> MappedFiles::MapMutableStorageFile(
+  base::Result<MutableMappedStorageFile> StorageFiles::MapMutableStorageFile(
       StorageFileType file_type) {
     switch (file_type) {
       case StorageFileType::flag_val:
+        if (storage_record_.flag_val.empty()) {
+          return Error() << "Missing persist flag value file";
+        }
+        return map_mutable_storage_file(storage_record_.flag_val);
+        break;
       case StorageFileType::flag_info:
-        return get_mutable_mapped_file(container_, file_type);
+        if (storage_record_.flag_info.empty()) {
+          return Error() << "Missing persist flag info file";
+        }
+        return map_mutable_storage_file(storage_record_.flag_info);
         break;
       default:
         return base::Error() << "Unsupported storage file type to map";
@@ -119,7 +98,7 @@ namespace android {
   }
 
   /// get package map
-  base::Result<const MappedStorageFile*> MappedFiles::get_package_map() {
+  base::Result<const MappedStorageFile*> StorageFiles::GetPackageMap() {
     if (!package_map_) {
       auto package_map = MapStorageFile(StorageFileType::package_map);
       if (!package_map.ok()) {
@@ -132,7 +111,7 @@ namespace android {
   }
 
   /// get flag map
-  base::Result<const MappedStorageFile*> MappedFiles::get_flag_map() {
+  base::Result<const MappedStorageFile*> StorageFiles::GetFlagMap() {
     if (!flag_map_) {
       auto flag_map = MapStorageFile(StorageFileType::flag_map);
       if (!flag_map.ok()) {
@@ -145,7 +124,7 @@ namespace android {
   }
 
   /// get persist flag val
-  base::Result<const MutableMappedStorageFile*> MappedFiles::get_persist_flag_val() {
+  base::Result<const MutableMappedStorageFile*> StorageFiles::GetPersistFlagVal() {
     if (!persist_flag_val_) {
       auto flag_val = MapMutableStorageFile(StorageFileType::flag_val);
       if (!flag_val.ok()) {
@@ -158,7 +137,7 @@ namespace android {
   }
 
   /// get persist flag info
-  base::Result<const MutableMappedStorageFile*> MappedFiles::get_persist_flag_info() {
+  base::Result<const MutableMappedStorageFile*> StorageFiles::GetPersistFlagInfo() {
     if (!persist_flag_info_) {
       auto flag_info = MapMutableStorageFile(StorageFileType::flag_info);
       if (!flag_info.ok()) {
@@ -171,12 +150,12 @@ namespace android {
   }
 
   /// Find flag value type and global index
-  base::Result<MappedFiles::FlagTypeAndIndex> MappedFiles::GetFlagTypeAndIndex(
+  base::Result<StorageFiles::FlagTypeAndIndex> StorageFiles::GetFlagTypeAndIndex(
       const std::string& package,
       const std::string& flag) {
     auto result = FlagTypeAndIndex();
 
-    auto package_map = get_package_map();
+    auto package_map = GetPackageMap();
     if (!package_map.ok()) {
       return base::Error() << package_map.error();
     }
@@ -195,7 +174,7 @@ namespace android {
     uint32_t package_id = package_context->package_id;
     uint32_t package_start_index = package_context->boolean_start_index;
 
-    auto flag_map = get_flag_map();
+    auto flag_map = GetFlagMap();
     if (!flag_map.ok()) {
       return base::Error() << flag_map.error();
     }
@@ -226,8 +205,8 @@ namespace android {
   }
 
   /// check if has package
-  base::Result<bool> MappedFiles::HasPackage(const std::string& package) {
-    auto package_map_file = get_package_map();
+  base::Result<bool> StorageFiles::HasPackage(const std::string& package) {
+    auto package_map_file = GetPackageMap();
     if (!package_map_file.ok()) {
       return base::Error() << package_map_file.error();
     }
@@ -242,9 +221,9 @@ namespace android {
   }
 
   /// server flag override, update persistent flag value and info
-  base::Result<void> MappedFiles::UpdatePersistFlag(const std::string& package,
-                                                    const std::string& flag,
-                                                    const std::string& flag_value) {
+  base::Result<void> StorageFiles::UpdatePersistFlag(const std::string& package,
+                                                     const std::string& flag,
+                                                     const std::string& flag_value) {
 
     // find flag value type and index
     auto type_and_index = GetFlagTypeAndIndex(package, flag);
@@ -258,14 +237,26 @@ namespace android {
     auto value_type = type_and_index->value_type;
     auto flag_index = type_and_index->flag_index;
 
-    auto flag_value_file = get_persist_flag_val();
+    auto flag_value_file = GetPersistFlagVal();
     if (!flag_value_file.ok()) {
       return base::Error() << flag_value_file.error();
     }
 
-    auto flag_info_file = get_persist_flag_info();
+    auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
+    }
+
+    auto ro_info_file = MappedStorageFile();
+    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
+    ro_info_file.file_size = (*flag_info_file)->file_size;
+    auto attribute = get_flag_attribute(ro_info_file, value_type, flag_index);
+    if (!attribute.ok()) {
+      return base::Error() << "Failed to get info of flag " << flag;
+    }
+    if (!(*attribute & FlagInfoBit::IsReadWrite)) {
+      return base::Error() << "Cannot update read only flag " << package
+                           << "/" << flag;
     }
 
     switch (value_type) {
@@ -299,9 +290,9 @@ namespace android {
   }
 
   /// mark this flag has local override
-  base::Result<void> MappedFiles::MarkHasLocalOverride(const std::string& package,
-                                                       const std::string& flag,
-                                                       bool has_local_override) {
+  base::Result<void> StorageFiles::MarkHasLocalOverride(const std::string& package,
+                                                        const std::string& flag,
+                                                        bool has_local_override) {
     // find flag value type and index
     auto type_and_index = GetFlagTypeAndIndex(package, flag);
     if (!type_and_index.ok()) {
@@ -316,7 +307,7 @@ namespace android {
     auto value_type = type_and_index->value_type;
     auto flag_index = type_and_index->flag_index;
 
-    auto flag_info_file = get_persist_flag_info();
+    auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
     }
@@ -331,8 +322,42 @@ namespace android {
     return {};
   }
 
-  /// get persistent flag value and info
-  base::Result<std::pair<std::string, uint8_t>> MappedFiles::GetPersistFlagValueAndInfo(
+  /// get persistent flag attribute
+  base::Result<uint8_t> StorageFiles::GetPersistFlagAttribute(
+      const std::string& package,
+      const std::string& flag) {
+    // find flag value type and index
+    auto type_and_index = GetFlagTypeAndIndex(package, flag);
+    if (!type_and_index.ok()) {
+      return base::Error() << "Failed to find flag " << flag << ": "
+                           << type_and_index.error();
+    }
+    if (!type_and_index->flag_exists) {
+      return base::Error() << "Failed to find flag " << flag;
+    }
+    auto value_type = type_and_index->value_type;
+    auto flag_index = type_and_index->flag_index;
+
+    // get flag attribute
+    auto flag_info_file = GetPersistFlagInfo();
+    if (!flag_info_file.ok()) {
+      return base::Error() << flag_info_file.error();
+    }
+
+    auto ro_info_file = MappedStorageFile();
+    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
+    ro_info_file.file_size = (*flag_info_file)->file_size;
+
+    auto attribute = get_flag_attribute(ro_info_file, value_type, flag_index);
+    if (!attribute.ok()) {
+      return base::Error() << "Failed to get flag info: " << attribute.error();
+    }
+
+    return *attribute;
+  }
+
+  /// get persistent flag value and attribute
+  base::Result<std::pair<std::string, uint8_t>> StorageFiles::GetPersistFlagValueAndAttribute(
       const std::string& package,
       const std::string& flag) {
 
@@ -344,17 +369,16 @@ namespace android {
     }
     if (!type_and_index->flag_exists) {
       return base::Error() << "Failed to find flag " << flag;
-
     }
     auto value_type = type_and_index->value_type;
     auto flag_index = type_and_index->flag_index;
 
-    auto flag_value_file = get_persist_flag_val();
+    auto flag_value_file = GetPersistFlagVal();
     if (!flag_value_file.ok()) {
       return base::Error() << flag_value_file.error();
     }
 
-    auto flag_info_file = get_persist_flag_info();
+    auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
     }
@@ -395,7 +419,7 @@ namespace android {
   }
 
   /// apply local update to boot flag value copy
-  base::Result<LocalFlagOverrides> MappedFiles::ApplyLocalOverride(
+  base::Result<LocalFlagOverrides> StorageFiles::ApplyLocalOverride(
       const std::string& flag_value_file,
       const LocalFlagOverrides& local_overrides) {
     auto applied_overrides = LocalFlagOverrides();

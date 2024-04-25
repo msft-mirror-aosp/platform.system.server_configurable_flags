@@ -17,8 +17,6 @@
 #pragma once
 
 #include <string>
-#include <memory>
-#include <unordered_map>
 
 #include <android-base/result.h>
 
@@ -29,23 +27,45 @@
 namespace android {
   namespace aconfigd {
 
+    /// In memory data structure for storage file locations for each container
+    struct StorageRecord {
+      int version;
+      std::string container;
+      std::string package_map;
+      std::string flag_map;
+      std::string flag_val;
+      std::string flag_info;
+      std::string local_overrides;
+      int timestamp;
+    };
+
     /// Mapped files for a container
-    class MappedFiles {
+    class StorageFiles {
       public:
 
       /// constructor
-      MappedFiles(const std::string& container);
+      StorageFiles(const std::string& container, const StorageRecord& record);
 
       /// destructor
-      ~MappedFiles() = default;
+      ~StorageFiles() = default;
 
       /// no copy
-      MappedFiles(const MappedFiles&) = delete;
-      MappedFiles& operator=(const MappedFiles&) = delete;
+      StorageFiles(const StorageFiles&) = delete;
+      StorageFiles& operator=(const StorageFiles&) = delete;
 
       /// move constructor and assignment
-      MappedFiles(MappedFiles&& rhs);
-      MappedFiles& operator=(MappedFiles&& rhs);
+      StorageFiles(StorageFiles&& rhs);
+      StorageFiles& operator=(StorageFiles&& rhs);
+
+      /// get storage record
+      const StorageRecord& GetStorageRecord() {
+        return storage_record_;
+      }
+
+      /// set storage record
+      void SetStorageRecord(const StorageRecord& record) {
+        storage_record_ = record;
+      }
 
       /// check if has package
       base::Result<bool> HasPackage(const std::string& package);
@@ -60,8 +80,13 @@ namespace android {
                                               const std::string& flag,
                                               bool has_local_override);
 
-      /// get persistent flag value and info
-      base::Result<std::pair<std::string, uint8_t>> GetPersistFlagValueAndInfo(
+      /// get persistent flag attribute
+      base::Result<uint8_t> GetPersistFlagAttribute(const std::string& package,
+                                                    const std::string& flag);
+
+
+      /// get persistent flag value and attribute
+      base::Result<std::pair<std::string, uint8_t>> GetPersistFlagValueAndAttribute(
           const std::string& package,
           const std::string& flag);
 
@@ -81,16 +106,16 @@ namespace android {
           aconfig_storage::StorageFileType file_type);
 
       /// get package map
-      base::Result<const aconfig_storage::MappedStorageFile*> get_package_map();
+      base::Result<const aconfig_storage::MappedStorageFile*> GetPackageMap();
 
       /// get flag map
-      base::Result<const aconfig_storage::MappedStorageFile*> get_flag_map();
+      base::Result<const aconfig_storage::MappedStorageFile*> GetFlagMap();
 
       /// get persist flag val
-      base::Result<const aconfig_storage::MutableMappedStorageFile*> get_persist_flag_val();
+      base::Result<const aconfig_storage::MutableMappedStorageFile*> GetPersistFlagVal();
 
       /// get persist flag info
-      base::Result<const aconfig_storage::MutableMappedStorageFile*> get_persist_flag_info();
+      base::Result<const aconfig_storage::MutableMappedStorageFile*> GetPersistFlagInfo();
 
       /// return result for flag type and index query
       struct FlagTypeAndIndex {
@@ -108,6 +133,9 @@ namespace android {
       /// container name
       std::string container_;
 
+      // storage record for current container
+      StorageRecord storage_record_;
+
       /// mapped package map file
       std::unique_ptr<aconfig_storage::MappedStorageFile> package_map_;
 
@@ -120,41 +148,7 @@ namespace android {
       /// mapped mutable flag info file
       std::unique_ptr<aconfig_storage::MutableMappedStorageFile> persist_flag_info_;
 
-    }; // class MappedFiles
-
-    /// Manager all mapped files across different containers
-    class MappedFilesManager {
-      public:
-
-      /// constructor
-      MappedFilesManager() = default;
-
-      /// destructor
-      ~MappedFilesManager() = default;
-
-      /// no copy
-      MappedFilesManager(const MappedFilesManager&) = delete;
-      MappedFilesManager& operator=(const MappedFilesManager&) = delete;
-
-      /// move constructor and assignment
-      MappedFilesManager(MappedFilesManager&& rhs) = default;
-      MappedFilesManager& operator=(MappedFilesManager&& rhs) = default;
-
-      /// get mapped files for a container
-      MappedFiles& get_mapped_files(const std::string& container);
-
-      /// get container name given flag package name
-      base::Result<std::string> GetContainer(const std::string& package);
-
-      private:
-
-      /// a hash table from container name to mapped files
-      std::unordered_map<std::string, std::unique_ptr<MappedFiles>> mapped_files_;
-
-      /// a hash table from package name to container name
-      std::unordered_map<std::string, std::string> package_to_container_;
-
-    }; // class MappedFilesManager
+    }; // class StorageFiles
 
   } // namespace aconfigd
 } // namespace android
