@@ -31,8 +31,8 @@ namespace android {
                               const std::string& dst,
                               mode_t mode);
 
-  /// Get a file's timestamp
-  base::Result<int> GetFileTimeStamp(const std::string& file);
+  /// Get a file's timestamp in nano second
+  base::Result<uint64_t> GetFileTimeStamp(const std::string& file);
 
   /// Check if file exists
   bool FileExists(const std::string& file);

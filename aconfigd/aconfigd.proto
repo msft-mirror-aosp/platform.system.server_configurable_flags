@@ -62,7 +62,9 @@ message StorageRequestMessages {
 
 // aconfigd return to client
 message StorageReturnMessage {
-  message NewStorageReturnMessage {}
+  message NewStorageReturnMessage {
+    optional bool storage_updated = 1;
+  }
 
   message FlagOverrideReturnMessage {}
 
