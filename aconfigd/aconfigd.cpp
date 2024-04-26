@@ -233,6 +233,32 @@ Result<bool> AddOrUpdateStorageForContainer(const std::string& container,
         return Error() << storage_files.error();
       }
       (**storage_files).SetStorageRecord(record);
+
+      // mark exsting local overrides on new flag info file
+      auto pb_file = (**storage_files).GetStorageRecord().local_overrides;
+      auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+      if (!pb.ok()) {
+        return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+      }
+      for (const auto& entry : pb->overrides()) {
+        auto has_flag = (**storage_files).HasFlag(entry.package_name(), entry.flag_name());
+        if (!has_flag.ok()) {
+          return Error() << "Failed to get if container " << container << " has flag "
+                         << entry.package_name() << "/" << entry.flag_name();
+        }
+        if (*has_flag) {
+          auto context = (**storage_files).GetPackageFlagContext(
+              entry.package_name(), entry.flag_name());
+          if (!context.ok()) {
+            return Error() << "Failed to find package flag context: " << context.error();
+          }
+
+          auto update = (**storage_files).SetHasLocalOverride(*context, true);
+          if (!update.ok()) {
+            return Error() << "Failed to set has local override: " << update.error();
+          }
+        }
+      }
     }
 
     // write to persistent storage records file
@@ -268,7 +294,8 @@ void HandleNewStorage(const StorageRequestMessage::NewStorageMessage& msg,
     return;
   }
 
-  return_msg.mutable_new_storage_message();
+  auto result_msg = return_msg.mutable_new_storage_message();
+  result_msg->set_storage_updated(*updated);
 }
 
 /// Handle a local flag override request
@@ -305,9 +332,6 @@ Result<void> HandleLocalFlagOverride(const std::string& package,
   bool exist = false;
   for (auto& entry : *(pb->mutable_overrides())) {
     if (entry.package_name() == package && entry.flag_name() == flag) {
-      if (entry.flag_value() == flag_value) {
-        return {};
-      }
       exist = true;
       entry.set_flag_value(flag_value);
       break;
@@ -315,18 +339,21 @@ Result<void> HandleLocalFlagOverride(const std::string& package,
   }
 
   if (!exist) {
-    // add a new override entry to pb
     auto new_override = pb->add_overrides();
     new_override->set_package_name(package);
     new_override->set_flag_name(flag);
     new_override->set_flag_value(flag_value);
+  }
 
-    // mark override sticky
-    auto update = (**storage_files).MarkHasLocalOverride(package, flag, true);
-    if (!update.ok()) {
-      return Error() << "Failed to mark flag " << package + "." + flag << " sticky: "
-                     << update.error();
-    }
+  // mark has local override
+  auto context = (**storage_files).GetPackageFlagContext(package, flag);
+  if (!context.ok()) {
+    return Error() << "Failed to find package flag context: " << context.error();
+  }
+
+  auto update = (**storage_files).SetHasLocalOverride(*context, true);
+  if (!update.ok()) {
+    return Error() << "Failed to set has local override: " << update.error();
   }
 
   auto write = WritePbToFile<LocalFlagOverrides>(*pb, pb_file);
@@ -343,14 +370,29 @@ Result<void> HandleServerFlagOverride(const std::string& package,
                                       const std::string& flag_value) {
   auto container = storage_files_manager.GetContainer(package);
   if (!container.ok()) {
-      return Error() << "Failed to find package " << package << ": "
-                     << container.error();
+      return Error() << "Failed to find owning container: " << container.error();
   }
   auto storage_files = storage_files_manager.GetStorageFiles(*container);
   if (!storage_files.ok()) {
-    return Error() << storage_files.error();
+    return Error() << "Failed to get storage files object: " << storage_files.error();
   }
-  return (**storage_files).UpdatePersistFlag(package, flag, flag_value);
+
+  auto context = (**storage_files).GetPackageFlagContext(package, flag);
+  if (!context.ok()) {
+    return Error() << "Failed to find package flag context: " << context.error();
+  }
+
+  auto update =(**storage_files).SetServerFlagValue(*context, flag_value);
+  if (!update.ok()) {
+    return Error() << "Failed to set server flag value: " << update.error();
+  }
+
+  update = (**storage_files).SetHasServerOverride(*context, true);
+  if (!update.ok()) {
+    return Error() << "Failed to set has server override: " << update.error();
+  }
+
+  return {};
 }
 
 /// Handle a flag override request
@@ -440,16 +482,25 @@ Result<void> RemoveAllLocalOverrides() {
     }
 
     for (auto& entry : overrides_pb->overrides()) {
-      auto update = (**storage_files).MarkHasLocalOverride(
-          entry.package_name(), entry.flag_name(), false);
+      auto context = (**storage_files).GetPackageFlagContext(
+          entry.package_name(), entry.flag_name());
+      if (!context.ok()) {
+        return Error() << "Failed to find package flag context: " << context.error();
+      }
+
+      auto update = (**storage_files).SetHasLocalOverride(*context, false);
       if (!update.ok()) {
-        return Error() << "Failed to mark flag " << entry.package_name() + "." +
-            entry.flag_name() << " sticky: " << update.error();
+        return Error() << "Failed to mark has local override: " << update.error();
       }
     }
 
-    if (unlink(record->local_overrides.c_str()) == -1) {
-      return ErrnoError() << "unlink() failed for " << record->local_overrides;
+    if (overrides_pb->overrides_size()) {
+      auto result = WritePbToFile<LocalFlagOverrides>(LocalFlagOverrides(),
+                                                      record->local_overrides);
+      if (!result.ok()) {
+        return base::Error() << "Failed to flush local overrides pb file: "
+                             << result.error();
+      }
     }
   }
 
@@ -478,18 +529,22 @@ Result<void> RemoveFlagLocalOverride(const std::string& package,
   auto updated_overrides = LocalFlagOverrides();
   for (auto entry : overrides_pb->overrides()) {
     if (entry.package_name() == package && entry.flag_name() == flag) {
-      auto update = (**storage_files).MarkHasLocalOverride(
-          entry.package_name(), entry.flag_name(), false);
-      if (!update.ok()) {
-        return Error() << "Failed to mark flag " << entry.package_name() + "." +
-            entry.flag_name() << " sticky: " << update.error();
+      auto context = (**storage_files).GetPackageFlagContext(
+          entry.package_name(), entry.flag_name());
+      if (!context.ok()) {
+        return Error() << "Failed to find package flag context: " << context.error();
       }
-      continue;
+
+      auto update = (**storage_files).SetHasLocalOverride(*context, false);
+      if (!update.ok()) {
+        return Error() << "Failed to set has local override: " << update.error();
+      }
+    } else {
+      auto kept_override = updated_overrides.add_overrides();
+      kept_override->set_package_name(entry.package_name());
+      kept_override->set_flag_name(entry.flag_name());
+      kept_override->set_flag_value(entry.flag_value());
     }
-    auto kept_override = updated_overrides.add_overrides();
-    kept_override->set_package_name(entry.package_name());
-    kept_override->set_flag_name(entry.flag_name());
-    kept_override->set_flag_value(entry.flag_value());
   }
 
   if (updated_overrides.overrides_size() != overrides_pb->overrides_size()) {
