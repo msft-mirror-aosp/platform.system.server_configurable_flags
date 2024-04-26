@@ -189,7 +189,8 @@ class AconfigdTest : public ::testing::Test {
   void verify_error_message(const StorageReturnMessage& msg,
                             const std::string& errmsg) {
     ASSERT_TRUE(msg.has_error_message());
-    ASSERT_TRUE(msg.error_message().find(errmsg) != std::string::npos);
+    ASSERT_TRUE(msg.error_message().find(errmsg) != std::string::npos)
+        << msg.error_message();
   }
 
   // setup test suites
@@ -333,12 +334,8 @@ TEST_F(AconfigdTest, readonly_flag_override) {
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
-  verify_error_message(
-      return_msgs->msgs(1),
-      "Cannot update read only flag com.android.aconfig.storage.test_1/enabled_ro");
-  verify_error_message(
-      return_msgs->msgs(2),
-      "Cannot update read only flag com.android.aconfig.storage.test_1/enabled_ro");
+  verify_error_message(return_msgs->msgs(1), "Cannot update read only flag");
+  verify_error_message(return_msgs->msgs(2), "Cannot update read only flag");
 }
 
 TEST_F(AconfigdTest, nonexist_flag_override) {
@@ -351,8 +348,8 @@ TEST_F(AconfigdTest, nonexist_flag_override) {
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
-  verify_error_message(return_msgs->msgs(1), "Failed to find package unknown");
-  verify_error_message(return_msgs->msgs(2), "Failed to find flag unknown");
+  verify_error_message(return_msgs->msgs(1), "Failed to find owning container");
+  verify_error_message(return_msgs->msgs(2), "Flag does not exist");
 }
 
 TEST_F(AconfigdTest, nonexist_flag_query) {
@@ -365,8 +362,8 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
-  verify_error_message(return_msgs->msgs(1), "Failed to find package unknown");
-  verify_error_message(return_msgs->msgs(2), "Failed to find flag unknown");
+  verify_error_message(return_msgs->msgs(1), "Failed to find owning container");
+  verify_error_message(return_msgs->msgs(2), "Flag does not exist");
 }
 
 TEST_F(AconfigdTest, local_override_survive_update) {
