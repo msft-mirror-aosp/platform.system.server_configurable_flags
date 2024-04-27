@@ -149,12 +149,49 @@ namespace android {
     return persist_flag_info_.get();
   }
 
+  /// check if flag is read only
+  base::Result<bool> StorageFiles::IsFlagReadOnly(const PackageFlagContext& context) {
+    auto flag_info_file = GetPersistFlagInfo();
+    if (!flag_info_file.ok()) {
+      return base::Error() << flag_info_file.error();
+    }
+
+    auto ro_info_file = MappedStorageFile();
+    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
+    ro_info_file.file_size = (*flag_info_file)->file_size;
+    auto attribute = get_flag_attribute(
+        ro_info_file, context.value_type, context.flag_index);
+
+    if (!attribute.ok()) {
+      return base::Error() << "Failed to get flag attribute";
+    }
+
+    return !(*attribute & FlagInfoBit::IsReadWrite);
+  }
+
+  /// set storage record
+  void StorageFiles::SetStorageRecord(const StorageRecord& record) {
+    storage_record_ = record;
+    package_map_.reset(nullptr);
+    flag_map_.reset(nullptr);
+    persist_flag_val_.reset(nullptr);
+    persist_flag_info_.reset(nullptr);
+  }
+
   /// Find flag value type and global index
-  base::Result<StorageFiles::FlagTypeAndIndex> StorageFiles::GetFlagTypeAndIndex(
+  base::Result<StorageFiles::PackageFlagContext> StorageFiles::GetPackageFlagContext(
       const std::string& package,
       const std::string& flag) {
-    auto result = FlagTypeAndIndex();
+    auto result = PackageFlagContext();
 
+    // early return
+    if (package.empty()) {
+      result.package_exists = false;
+      result.flag_exists = false;
+      return result;
+    }
+
+    // find package context
     auto package_map = GetPackageMap();
     if (!package_map.ok()) {
       return base::Error() << package_map.error();
@@ -167,13 +204,22 @@ namespace android {
     }
 
     if (!package_context->package_exists) {
+      result.package_exists = false;
       result.flag_exists = false;
+      return result;
+    } else {
+      result.package_exists = true;
+    }
+
+    // early return
+    if (flag.empty()) {
       return result;
     }
 
     uint32_t package_id = package_context->package_id;
-    uint32_t package_start_index = package_context->boolean_start_index;
+    uint32_t boolean_flag_start_index = package_context->boolean_start_index;
 
+    // find flag context
     auto flag_map = GetFlagMap();
     if (!flag_map.ok()) {
       return base::Error() << flag_map.error();
@@ -181,8 +227,9 @@ namespace android {
 
     auto flag_context = get_flag_read_context(**flag_map, package_id, flag);
     if (!flag_context.ok()) {
-      return base::Error() << "Failed to get flag context of " << flag
-                           << " in " << container_  << " :" << flag_context.error();
+      return base::Error() << "Failed to get flag context of " << package << "/"
+                           << flag << " in " << container_  << " :"
+                           << flag_context.error();
     }
 
     if (!flag_context->flag_exists) {
@@ -191,8 +238,7 @@ namespace android {
     }
 
     StoredFlagType stored_type = flag_context->flag_type;
-    uint16_t flag_index = flag_context->flag_index;
-
+    uint16_t within_package_flag_index = flag_context->flag_index;
     auto value_type = map_to_flag_value_type(stored_type);
     if (!value_type.ok()) {
       return base::Error() << "Failed to get flag value type :" << value_type.error();
@@ -200,86 +246,54 @@ namespace android {
 
     result.flag_exists = true;
     result.value_type = *value_type;
-    result.flag_index = package_start_index + flag_index;
+    result.flag_index = boolean_flag_start_index + within_package_flag_index;
     return result;
   }
 
   /// check if has package
   base::Result<bool> StorageFiles::HasPackage(const std::string& package) {
-    auto package_map_file = GetPackageMap();
-    if (!package_map_file.ok()) {
-      return base::Error() << package_map_file.error();
+    auto type_and_index = GetPackageFlagContext(package, "");
+    if (!type_and_index.ok()) {
+      return base::Error() << type_and_index.error();
     }
-
-    auto context= get_package_read_context(**package_map_file, package);
-    if (!context.ok()) {
-      return base::Error() << "Failed to get context for package " << package
-                           << " in container " << container_ << ": " << context.error();
-    }
-
-    return context->package_exists;
+    return type_and_index->package_exists;
   }
 
-  /// server flag override, update persistent flag value and info
-  base::Result<void> StorageFiles::UpdatePersistFlag(const std::string& package,
-                                                     const std::string& flag,
-                                                     const std::string& flag_value) {
-
-    // find flag value type and index
-    auto type_and_index = GetFlagTypeAndIndex(package, flag);
+  /// check if has flag
+  base::Result<bool> StorageFiles::HasFlag(const std::string& package,
+                                           const std::string& flag) {
+    auto type_and_index = GetPackageFlagContext(package, flag);
     if (!type_and_index.ok()) {
-      return base::Error() << "Failed to find flag " << flag << ": "
-                           << type_and_index.error();
+      return base::Error() << type_and_index.error();
     }
-    if (!type_and_index->flag_exists) {
-      return base::Error() << "Failed to find flag " << flag;
+    return type_and_index->flag_exists;
+  }
+
+
+  /// server flag override, update persistent flag value
+  base::Result<void> StorageFiles::SetServerFlagValue(const PackageFlagContext& context,
+                                                      const std::string& flag_value) {
+    if (IsFlagReadOnly(context)) {
+      return base::Error() << "Cannot update read only flag";
     }
-    auto value_type = type_and_index->value_type;
-    auto flag_index = type_and_index->flag_index;
 
     auto flag_value_file = GetPersistFlagVal();
     if (!flag_value_file.ok()) {
       return base::Error() << flag_value_file.error();
     }
 
-    auto flag_info_file = GetPersistFlagInfo();
-    if (!flag_info_file.ok()) {
-      return base::Error() << flag_info_file.error();
-    }
-
-    auto ro_info_file = MappedStorageFile();
-    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
-    ro_info_file.file_size = (*flag_info_file)->file_size;
-    auto attribute = get_flag_attribute(ro_info_file, value_type, flag_index);
-    if (!attribute.ok()) {
-      return base::Error() << "Failed to get info of flag " << flag;
-    }
-    if (!(*attribute & FlagInfoBit::IsReadWrite)) {
-      return base::Error() << "Cannot update read only flag " << package
-                           << "/" << flag;
-    }
-
-    switch (value_type) {
+    switch (context.value_type) {
       case FlagValueType::Boolean: {
-        // validate value
         if (flag_value != "true" && flag_value != "false") {
           return base::Error() << "Invalid boolean flag value, it should be true|false";
         }
 
-        // update flag value
         auto update_result = set_boolean_flag_value(
-            **flag_value_file, flag_index, flag_value == "true");
+            **flag_value_file, context.flag_index, flag_value == "true");
         if (!update_result.ok()) {
           return base::Error() << "Failed to update flag value: " << update_result.error();
         }
 
-        // update flag info
-        update_result = set_flag_has_server_override(
-            **flag_info_file, value_type, flag_index, true);
-        if (!update_result.ok()) {
-          return base::Error() << "Failed to update flag has server override: "
-                               << update_result.error();
-        }
         break;
       }
       default:
@@ -289,34 +303,37 @@ namespace android {
     return {};
   }
 
-  /// mark this flag has local override
-  base::Result<void> StorageFiles::MarkHasLocalOverride(const std::string& package,
-                                                        const std::string& flag,
-                                                        bool has_local_override) {
-    // find flag value type and index
-    auto type_and_index = GetFlagTypeAndIndex(package, flag);
-    if (!type_and_index.ok()) {
-      return base::Error() << "Failed to find flag " << flag << ": "
-                           << type_and_index.error();
-    }
-    if (!type_and_index->flag_exists) {
-      return base::Error() << "Failed to find flag " << flag;
-
-    }
-
-    auto value_type = type_and_index->value_type;
-    auto flag_index = type_and_index->flag_index;
-
+  /// set has server override in flag info
+  base::Result<void> StorageFiles::SetHasServerOverride(const PackageFlagContext& context,
+                                                        bool has_server_override) {
     auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
     }
 
-    // update flag info, has local override
-    auto update_result = set_flag_has_local_override(
-        **flag_info_file, value_type, flag_index, has_local_override);
+    auto update_result = set_flag_has_server_override(
+        **flag_info_file, context.value_type, context.flag_index, has_server_override);
     if (!update_result.ok()) {
-      return base::Error() << "Failed to update flag has local override: " << update_result.error();
+      return base::Error() << "Failed to update flag has server override: "
+                           << update_result.error();
+    }
+
+    return {};
+  }
+
+  /// set has local override in flag info
+  base::Result<void> StorageFiles::SetHasLocalOverride(const PackageFlagContext& context,
+                                                       bool has_local_override) {
+    auto flag_info_file = GetPersistFlagInfo();
+    if (!flag_info_file.ok()) {
+      return base::Error() << flag_info_file.error();
+    }
+
+    auto update_result = set_flag_has_local_override(
+        **flag_info_file, context.value_type, context.flag_index, has_local_override);
+    if (!update_result.ok()) {
+      return base::Error() << "Failed to update flag has local override: "
+                           << update_result.error();
     }
 
     return {};
@@ -327,7 +344,7 @@ namespace android {
       const std::string& package,
       const std::string& flag) {
     // find flag value type and index
-    auto type_and_index = GetFlagTypeAndIndex(package, flag);
+    auto type_and_index = GetPackageFlagContext(package, flag);
     if (!type_and_index.ok()) {
       return base::Error() << "Failed to find flag " << flag << ": "
                            << type_and_index.error();
@@ -362,7 +379,7 @@ namespace android {
       const std::string& flag) {
 
     // find flag value type and index
-    auto type_and_index = GetFlagTypeAndIndex(package, flag);
+    auto type_and_index = GetPackageFlagContext(package, flag);
     if (!type_and_index.ok()) {
       return base::Error() << "Failed to find flag " << flag << ": "
                            << type_and_index.error();
@@ -432,7 +449,7 @@ namespace android {
     for (auto& entry : local_overrides.overrides()) {
 
       // find flag value type and index
-      auto type_and_index = GetFlagTypeAndIndex(entry.package_name(), entry.flag_name());
+      auto type_and_index = GetPackageFlagContext(entry.package_name(), entry.flag_name());
       if (!type_and_index.ok()) {
         return base::Error() << "Failed to find flag: " << type_and_index.error();
       }
