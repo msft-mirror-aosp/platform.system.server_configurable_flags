@@ -20,6 +20,11 @@
 #include <android-base/result.h>
 #include <android-base/file.h>
 
+#define RETURN_IF_ERROR(RESULT, ERROR) \
+if (!RESULT.ok()) {\
+  return android::base::Error() << ERROR << ": " << RESULT.error();\
+}
+
 namespace android {
   namespace aconfigd {
 

@@ -151,6 +151,10 @@ namespace android {
 
   /// check if flag is read only
   base::Result<bool> StorageFiles::IsFlagReadOnly(const PackageFlagContext& context) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
     auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
@@ -182,7 +186,7 @@ namespace android {
   base::Result<StorageFiles::PackageFlagContext> StorageFiles::GetPackageFlagContext(
       const std::string& package,
       const std::string& flag) {
-    auto result = PackageFlagContext();
+    auto result = PackageFlagContext(package, flag);
 
     // early return
     if (package.empty()) {
@@ -204,7 +208,6 @@ namespace android {
     }
 
     if (!package_context->package_exists) {
-      result.package_exists = false;
       result.flag_exists = false;
       return result;
     } else {
@@ -269,12 +272,35 @@ namespace android {
     return type_and_index->flag_exists;
   }
 
+  /// get persistent flag attribute
+  base::Result<uint8_t> StorageFiles::GetFlagAttribute(
+      const PackageFlagContext& context) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
 
-  /// server flag override, update persistent flag value
-  base::Result<void> StorageFiles::SetServerFlagValue(const PackageFlagContext& context,
-                                                      const std::string& flag_value) {
-    if (IsFlagReadOnly(context)) {
-      return base::Error() << "Cannot update read only flag";
+    auto flag_info_file = GetPersistFlagInfo();
+    if (!flag_info_file.ok()) {
+      return base::Error() << flag_info_file.error();
+    }
+
+    auto ro_info_file = MappedStorageFile();
+    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
+    ro_info_file.file_size = (*flag_info_file)->file_size;
+
+    auto attribute = get_flag_attribute(ro_info_file, context.value_type, context.flag_index);
+    if (!attribute.ok()) {
+      return base::Error() << "Failed to get flag info: " << attribute.error();
+    }
+
+    return *attribute;
+  }
+
+  /// get server or default flag value
+  base::Result<std::string> StorageFiles::GetServerFlagValue(
+      const PackageFlagContext& context) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
     }
 
     auto flag_value_file = GetPersistFlagVal();
@@ -284,15 +310,74 @@ namespace android {
 
     switch (context.value_type) {
       case FlagValueType::Boolean: {
+        auto ro_value_file = MappedStorageFile();
+        ro_value_file.file_ptr = (*flag_value_file)->file_ptr;
+        ro_value_file.file_size = (*flag_value_file)->file_size;
+        auto value = get_boolean_flag_value(ro_value_file, context.flag_index);
+        if (!value.ok()) {
+          return base::Error() << "Failed to get flag value: " << value.error();
+        }
+        return *value ? "true" : "false";
+        break;
+      }
+      default:
+        return base::Error() << "Unsupported flag value type";
+    }
+
+    return base::Error() << "Failed to find flag in value file";
+  }
+
+  /// get local flag value, will error if local flag value does not exist
+  base::Result<std::string> StorageFiles::GetLocalFlagValue(
+      const PackageFlagContext& context) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
+    auto pb_file = storage_record_.local_overrides;
+    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    if (!pb.ok()) {
+      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+    }
+
+    for (auto& entry : pb->overrides()) {
+      if (context.package == entry.package_name()
+          && context.flag == entry.flag_name()) {
+        return entry.flag_value();
+      }
+    }
+
+    return base::Error() << "Failed to find flag local override value";
+  }
+
+  /// server flag override, update persistent flag value
+  base::Result<void> StorageFiles::SetServerFlagValue(const PackageFlagContext& context,
+                                                      const std::string& flag_value) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
+    auto readonly = IsFlagReadOnly(context);
+    RETURN_IF_ERROR(readonly, "Failed to check if flag is readonly")
+    if (*readonly) {
+      return base::Error() << "Cannot update read only flag";
+    }
+
+    auto flag_value_file = GetPersistFlagVal();
+    RETURN_IF_ERROR(flag_value_file, "Cannot get persist flag value file");
+
+    switch (context.value_type) {
+      case FlagValueType::Boolean: {
         if (flag_value != "true" && flag_value != "false") {
           return base::Error() << "Invalid boolean flag value, it should be true|false";
         }
 
-        auto update_result = set_boolean_flag_value(
+        auto update = set_boolean_flag_value(
             **flag_value_file, context.flag_index, flag_value == "true");
-        if (!update_result.ok()) {
-          return base::Error() << "Failed to update flag value: " << update_result.error();
-        }
+        RETURN_IF_ERROR(update, "Failed to update flag value");
+
+        update = SetHasServerOverride(context, true);
+        RETURN_IF_ERROR(update, "Failed to set flag has server override");
 
         break;
       }
@@ -303,9 +388,63 @@ namespace android {
     return {};
   }
 
+  /// local flag override, update local flag override pb filee
+  base::Result<void> StorageFiles::SetLocalFlagValue(const PackageFlagContext& context,
+                                                     const std::string& flag_value) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
+    auto readonly = IsFlagReadOnly(context);
+    RETURN_IF_ERROR(readonly, "Failed to check if flag is readonly")
+    if (*readonly) {
+      return base::Error() << "Cannot update read only flag";
+    }
+
+    auto pb_file = storage_record_.local_overrides;
+    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    if (!pb.ok()) {
+      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+    }
+
+    bool exist = false;
+    for (auto& entry : *(pb->mutable_overrides())) {
+      if (entry.package_name() == context.package
+          && entry.flag_name() == context.flag) {
+        if (entry.flag_value() == flag_value) {
+          return {};
+        }
+        exist = true;
+        entry.set_flag_value(flag_value);
+        break;
+      }
+    }
+
+    if (!exist) {
+      auto new_override = pb->add_overrides();
+      new_override->set_package_name(context.package);
+      new_override->set_flag_name(context.flag);
+      new_override->set_flag_value(flag_value);
+    }
+
+    auto write = WritePbToFile<LocalFlagOverrides>(*pb, pb_file);
+    if (!write.ok()) {
+      return Error() << "Failed to write pb to " << pb_file << ": " << write.error();
+    }
+
+    auto update = SetHasLocalOverride(context, true);
+    RETURN_IF_ERROR(update, "Failed to set flag has local override");
+
+    return {};
+  }
+
   /// set has server override in flag info
   base::Result<void> StorageFiles::SetHasServerOverride(const PackageFlagContext& context,
                                                         bool has_server_override) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
     auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
@@ -324,6 +463,10 @@ namespace android {
   /// set has local override in flag info
   base::Result<void> StorageFiles::SetHasLocalOverride(const PackageFlagContext& context,
                                                        bool has_local_override) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
     auto flag_info_file = GetPersistFlagInfo();
     if (!flag_info_file.ok()) {
       return base::Error() << flag_info_file.error();
@@ -339,129 +482,97 @@ namespace android {
     return {};
   }
 
-  /// get persistent flag attribute
-  base::Result<uint8_t> StorageFiles::GetPersistFlagAttribute(
-      const std::string& package,
-      const std::string& flag) {
-    // find flag value type and index
-    auto type_and_index = GetPackageFlagContext(package, flag);
-    if (!type_and_index.ok()) {
-      return base::Error() << "Failed to find flag " << flag << ": "
-                           << type_and_index.error();
-    }
-    if (!type_and_index->flag_exists) {
-      return base::Error() << "Failed to find flag " << flag;
-    }
-    auto value_type = type_and_index->value_type;
-    auto flag_index = type_and_index->flag_index;
+  /// remove a single flag local override, return if removed
+  base::Result<bool> StorageFiles::RemoveLocalFlagValue(
+      const PackageFlagContext& context) {
 
-    // get flag attribute
-    auto flag_info_file = GetPersistFlagInfo();
-    if (!flag_info_file.ok()) {
-      return base::Error() << flag_info_file.error();
+    auto pb_file = storage_record_.local_overrides;
+    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    if (!pb.ok()) {
+      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
     }
 
-    auto ro_info_file = MappedStorageFile();
-    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
-    ro_info_file.file_size = (*flag_info_file)->file_size;
-
-    auto attribute = get_flag_attribute(ro_info_file, value_type, flag_index);
-    if (!attribute.ok()) {
-      return base::Error() << "Failed to get flag info: " << attribute.error();
+    auto remaining_overrides = LocalFlagOverrides();
+    for (auto entry : pb->overrides()) {
+      if (entry.package_name() == context.package
+          && entry.flag_name() == context.flag) {
+        continue;
+      }
+      auto kept_override = remaining_overrides.add_overrides();
+      kept_override->set_package_name(entry.package_name());
+      kept_override->set_flag_name(entry.flag_name());
+      kept_override->set_flag_value(entry.flag_value());
     }
 
-    return *attribute;
+    if (remaining_overrides.overrides_size() != pb->overrides_size()) {
+      auto result = WritePbToFile<LocalFlagOverrides>(remaining_overrides, pb_file);
+      if (!result.ok()) {
+        return base::Error() << result.error();
+      }
+
+      auto update = SetHasLocalOverride(context, false);
+      RETURN_IF_ERROR(update, "Failed to unset flag has local override");
+
+      return true;
+    } else {
+      return false;
+    }
   }
 
-  /// get persistent flag value and attribute
-  base::Result<std::pair<std::string, uint8_t>> StorageFiles::GetPersistFlagValueAndAttribute(
-      const std::string& package,
-      const std::string& flag) {
+  /// remove all local overrides
+  base::Result<void> StorageFiles::RemoveAllLocalFlagValue() {
+    auto pb_file = storage_record_.local_overrides;
+    auto overrides_pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    RETURN_IF_ERROR(overrides_pb, "Failed to read local overrides");
 
-    // find flag value type and index
-    auto type_and_index = GetPackageFlagContext(package, flag);
-    if (!type_and_index.ok()) {
-      return base::Error() << "Failed to find flag " << flag << ": "
-                           << type_and_index.error();
-    }
-    if (!type_and_index->flag_exists) {
-      return base::Error() << "Failed to find flag " << flag;
-    }
-    auto value_type = type_and_index->value_type;
-    auto flag_index = type_and_index->flag_index;
+    for (auto& entry : overrides_pb->overrides()) {
+      auto context = GetPackageFlagContext(entry.package_name(), entry.flag_name());
+      RETURN_IF_ERROR(context, "Failed to find package flag context for flag "
+                      + entry.package_name() + "/" + entry.flag_name());
 
-    auto flag_value_file = GetPersistFlagVal();
-    if (!flag_value_file.ok()) {
-      return base::Error() << flag_value_file.error();
+      auto update = SetHasLocalOverride(*context, false);
+      RETURN_IF_ERROR(update, "Failed to unset flag has local override");
     }
 
-    auto flag_info_file = GetPersistFlagInfo();
-    if (!flag_info_file.ok()) {
-      return base::Error() << flag_info_file.error();
+    if (overrides_pb->overrides_size()) {
+      auto result = WritePbToFile<LocalFlagOverrides>(
+          LocalFlagOverrides(), pb_file);
+      RETURN_IF_ERROR(result, "Failed to flush local overrides pb file");
     }
 
-    // return value
-    auto flag_value = std::string();
-    uint8_t flag_attribute = 0;
-
-    switch (value_type) {
-      case FlagValueType::Boolean: {
-        // get flag value
-        auto ro_value_file = MappedStorageFile();
-        ro_value_file.file_ptr = (*flag_value_file)->file_ptr;
-        ro_value_file.file_size = (*flag_value_file)->file_size;
-        auto value = get_boolean_flag_value(ro_value_file, flag_index);
-        if (!value.ok()) {
-          return base::Error() << "Failed to get flag value: " << value.error();
-        }
-        flag_value = *value ? "true" : "false";
-
-        // get flag attribute
-        auto ro_info_file = MappedStorageFile();
-        ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
-        ro_info_file.file_size = (*flag_info_file)->file_size;
-        auto attribute = get_flag_attribute(ro_info_file, value_type, flag_index);
-        if (!attribute.ok()) {
-          return base::Error() << "Failed to get flag info: " << attribute.error();
-        }
-        flag_attribute = *attribute;
-
-        break;
-      }
-      default:
-        return base::Error() << "Unsupported flag value type";
-    }
-
-    return std::make_pair(flag_value, flag_attribute);
+    return {};
   }
 
   /// apply local update to boot flag value copy
-  base::Result<LocalFlagOverrides> StorageFiles::ApplyLocalOverride(
-      const std::string& flag_value_file,
-      const LocalFlagOverrides& local_overrides) {
-    auto applied_overrides = LocalFlagOverrides();
+  base::Result<void> StorageFiles::ApplyLocalOverride(
+      const std::string& flag_value_file) {
     auto mutable_flag_value_file = map_mutable_storage_file(flag_value_file);
     if (!mutable_flag_value_file.ok()) {
       return base::Error() << "Failed to map flag value file for local override: "
                            << mutable_flag_value_file.error();
     }
 
-    for (auto& entry : local_overrides.overrides()) {
+    auto pb_file = storage_record_.local_overrides;
+    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    if (!pb.ok()) {
+      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+    }
+
+    auto applied_overrides = LocalFlagOverrides();
+    for (auto& entry : pb->overrides()) {
 
       // find flag value type and index
-      auto type_and_index = GetPackageFlagContext(entry.package_name(), entry.flag_name());
-      if (!type_and_index.ok()) {
-        return base::Error() << "Failed to find flag: " << type_and_index.error();
+      auto context = GetPackageFlagContext(entry.package_name(), entry.flag_name());
+      if (!context.ok()) {
+        return base::Error() << "Failed to find flag: " << context.error();
       }
-      if (!type_and_index->flag_exists) {
+
+      if (!context->flag_exists) {
         continue;
       }
 
-      auto value_type = type_and_index->value_type;
-      auto flag_index = type_and_index->flag_index;
-
       // apply a local override
-      switch (value_type) {
+      switch (context->value_type) {
         case FlagValueType::Boolean: {
           // validate value
           if (entry.flag_value() != "true" && entry.flag_value() != "false") {
@@ -470,7 +581,7 @@ namespace android {
 
           // update flag value
           auto update_result = set_boolean_flag_value(
-              *mutable_flag_value_file, flag_index, entry.flag_value() == "true");
+              *mutable_flag_value_file, context->flag_index, entry.flag_value() == "true");
           if (!update_result.ok()) {
             return base::Error() << "Failed to update flag value: " << update_result.error();
           }
@@ -488,7 +599,14 @@ namespace android {
       new_applied->set_flag_value(entry.flag_value());
     }
 
-    return applied_overrides;
+    if (pb->overrides_size() != applied_overrides.overrides_size()) {
+      auto result = WritePbToFile<LocalFlagOverrides>(applied_overrides, pb_file);
+      if (!result.ok()) {
+        return base::Error() << result.error();
+      }
+    }
+
+    return {};
   }
 
   } // namespace aconfigd
