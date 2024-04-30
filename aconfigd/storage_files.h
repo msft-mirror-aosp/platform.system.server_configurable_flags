@@ -67,10 +67,22 @@ namespace android {
 
       /// return result for package and flag context
       struct PackageFlagContext {
+        const std::string& package;
+        const std::string& flag;
         bool package_exists;
         bool flag_exists;
         aconfig_storage::FlagValueType value_type;
         uint32_t flag_index;
+
+        PackageFlagContext(const std::string& package_name,
+                           const std::string& flag_name)
+            : package(package_name)
+            , flag(flag_name)
+            , package_exists(false)
+            , flag_exists(false)
+            , value_type()
+            , flag_index()
+        {}
       };
 
       /// Find package and flag context
@@ -84,9 +96,22 @@ namespace android {
       base::Result<bool> HasFlag(const std::string& package,
                                  const std::string& flag);
 
+      /// get persistent flag attribute
+      base::Result<uint8_t> GetFlagAttribute(const PackageFlagContext& context);
+
+      /// get server or default flag value
+      base::Result<std::string> GetServerFlagValue(const PackageFlagContext& context);
+
+      /// get local flag value, will error if local flag value does not exist
+      base::Result<std::string> GetLocalFlagValue(const PackageFlagContext& context);
+
       /// server flag override, update persistent flag value
       base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
                                             const std::string& flag_value);
+
+      /// local flag override, update local flag override pb filee
+      base::Result<void> SetLocalFlagValue(const PackageFlagContext& context,
+                                           const std::string& flag_value);
 
       /// set has server override in flag info
       base::Result<void> SetHasServerOverride(const PackageFlagContext& context,
@@ -96,20 +121,14 @@ namespace android {
       base::Result<void> SetHasLocalOverride(const PackageFlagContext& context,
                                              bool has_local_override);
 
-      /// get persistent flag attribute
-      base::Result<uint8_t> GetPersistFlagAttribute(const std::string& package,
-                                                    const std::string& flag);
+      /// remove a single flag local override, return if removed
+      base::Result<bool> RemoveLocalFlagValue(const PackageFlagContext& context);
 
-
-      /// get persistent flag value and attribute
-      base::Result<std::pair<std::string, uint8_t>> GetPersistFlagValueAndAttribute(
-          const std::string& package,
-          const std::string& flag);
+      /// remove all local overrides
+      base::Result<void> RemoveAllLocalFlagValue();
 
       /// apply local update to boot flag value copy, return stale local overrides
-      base::Result<LocalFlagOverrides> ApplyLocalOverride(
-          const std::string& flag_value_file,
-          const LocalFlagOverrides& pb);
+      base::Result<void> ApplyLocalOverride(const std::string& flag_value_file);
 
       private:
 
