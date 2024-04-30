@@ -358,7 +358,7 @@ namespace android {
     }
 
     auto readonly = IsFlagReadOnly(context);
-    RETURN_IF_ERROR(readonly, "Failed to check if flag is readonly")
+    RETURN_IF_ERROR(readonly, "Failed to check if flag is readonly");
     if (*readonly) {
       return base::Error() << "Cannot update read only flag";
     }
@@ -607,6 +607,26 @@ namespace android {
     }
 
     return {};
+  }
+
+  /// get all current server override
+  base::Result<std::vector<FlagValueAndInfoSummary>>
+      StorageFiles::GetAllServerOverrides() {
+    auto listed_flags = list_flags_with_info(storage_record_.package_map,
+                                             storage_record_.flag_map,
+                                             storage_record_.flag_val,
+                                             storage_record_.flag_info);
+    RETURN_IF_ERROR(
+        listed_flags, "Failed to list all flags for " + storage_record_.container);
+
+    auto server_updated_flags = std::vector<FlagValueAndInfoSummary>();
+    for (const auto& flag : *listed_flags) {
+      if (flag.has_server_override) {
+        server_updated_flags.push_back(flag);
+      }
+    }
+
+    return server_updated_flags;
   }
 
   } // namespace aconfigd

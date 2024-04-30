@@ -198,7 +198,7 @@ class AconfigdTest : public ::testing::Test {
     // create a flag val file for each test point. make sure that these temp flag
     // value file timestamp are different, so that it will trigger a storage update.
     auto test_dir = base::GetExecutableDirectory();
-    for (int i=0; i<10; ++i) {
+    for (int i=0; i<12; ++i) {
       std::this_thread::sleep_for(std::chrono::milliseconds{10});
       auto temp_value_file = copy_to_temp_file(test_dir + "/tests/flag.val");
       ASSERT_TRUE(temp_value_file.ok());
@@ -240,25 +240,44 @@ TEST_F(AconfigdTest, flag_server_override) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_flag_vals_[1]);
   add_flag_override_message(
-      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "true", false);
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
   add_flag_query_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
   add_flag_override_message(
-      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "true", false);
   add_flag_query_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
   verify_flag_override_return_message(return_msgs->msgs(1));
-  verify_flag_query_return_message(return_msgs->msgs(2), "true", "", true, true, false);
+  verify_flag_query_return_message(return_msgs->msgs(2), "false", "", true, true, false);
   verify_flag_override_return_message(return_msgs->msgs(3));
+  verify_flag_query_return_message(return_msgs->msgs(4), "true", "", true, true, false);
+}
+
+TEST_F(AconfigdTest, server_override_survive_update) {
+  auto request_msgs = StorageRequestMessages();
+  add_new_storage_message(request_msgs, temp_flag_vals_[2]);
+  add_flag_override_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  add_flag_query_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
+  add_new_storage_message(request_msgs, temp_flag_vals_[3]);
+  add_flag_query_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
+  auto return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_new_storage_return_message(return_msgs->msgs(0));
+  verify_flag_override_return_message(return_msgs->msgs(1));
+  verify_flag_query_return_message(return_msgs->msgs(2), "false", "", true, true, false);
+  verify_new_storage_return_message(return_msgs->msgs(3));
   verify_flag_query_return_message(return_msgs->msgs(4), "false", "", true, true, false);
 }
 
 TEST_F(AconfigdTest, flag_local_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[2]);
+  add_new_storage_message(request_msgs, temp_flag_vals_[4]);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
   add_flag_query_message(
@@ -276,9 +295,28 @@ TEST_F(AconfigdTest, flag_local_override) {
   verify_flag_query_return_message(return_msgs->msgs(4), "false", "false", true, false, true);
 }
 
+TEST_F(AconfigdTest, local_override_survive_update) {
+  auto request_msgs = StorageRequestMessages();
+  add_new_storage_message(request_msgs, temp_flag_vals_[5]);
+  add_flag_override_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
+  add_flag_query_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw");
+  add_new_storage_message(request_msgs, temp_flag_vals_[6]);
+  add_flag_query_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw");
+  auto return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_new_storage_return_message(return_msgs->msgs(0));
+  verify_flag_override_return_message(return_msgs->msgs(1));
+  verify_flag_query_return_message(return_msgs->msgs(2), "false", "true", true, false, true);
+  verify_new_storage_return_message(return_msgs->msgs(3));
+  verify_flag_query_return_message(return_msgs->msgs(4), "false", "true", true, false, true);
+}
+
 TEST_F(AconfigdTest, single_local_override_remove) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[3]);
+  add_new_storage_message(request_msgs, temp_flag_vals_[7]);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
   add_flag_query_message(
@@ -298,7 +336,7 @@ TEST_F(AconfigdTest, single_local_override_remove) {
 
 TEST_F(AconfigdTest, multiple_local_override_remove) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[4]);
+  add_new_storage_message(request_msgs, temp_flag_vals_[8]);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
   add_flag_override_message(
@@ -326,7 +364,7 @@ TEST_F(AconfigdTest, multiple_local_override_remove) {
 
 TEST_F(AconfigdTest, readonly_flag_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[5]);
+  add_new_storage_message(request_msgs, temp_flag_vals_[9]);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_ro", "false", false);
   add_flag_override_message(
@@ -340,7 +378,7 @@ TEST_F(AconfigdTest, readonly_flag_override) {
 
 TEST_F(AconfigdTest, nonexist_flag_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[6]);
+  add_new_storage_message(request_msgs, temp_flag_vals_[10]);
   add_flag_override_message(
       request_msgs, "unknown", "enabled_rw", "true", false);
   add_flag_override_message(
@@ -354,7 +392,7 @@ TEST_F(AconfigdTest, nonexist_flag_override) {
 
 TEST_F(AconfigdTest, nonexist_flag_query) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[7]);
+  add_new_storage_message(request_msgs, temp_flag_vals_[11]);
   add_flag_query_message(
       request_msgs, "unknown", "enabled_rw");
   add_flag_query_message(
@@ -364,25 +402,6 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
   verify_new_storage_return_message(return_msgs->msgs(0));
   verify_error_message(return_msgs->msgs(1), "Failed to find owning container");
   verify_error_message(return_msgs->msgs(2), "Flag does not exist");
-}
-
-TEST_F(AconfigdTest, local_override_survive_update) {
-  auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_vals_[8]);
-  add_flag_override_message(
-      request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
-  add_flag_query_message(
-      request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw");
-  add_new_storage_message(request_msgs, temp_flag_vals_[9]);
-  add_flag_query_message(
-      request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw");
-  auto return_msgs = send_message(request_msgs);
-  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
-  verify_new_storage_return_message(return_msgs->msgs(0));
-  verify_flag_override_return_message(return_msgs->msgs(1));
-  verify_flag_query_return_message(return_msgs->msgs(2), "false", "true", true, false, true);
-  verify_new_storage_return_message(return_msgs->msgs(3));
-  verify_flag_query_return_message(return_msgs->msgs(4), "false", "true", true, false, true);
 }
 
 } // namespace aconfigd
