@@ -21,6 +21,7 @@
 #include <android-base/result.h>
 
 #include <aconfigd.pb.h>
+#include <aconfig_storage/aconfig_storage_file.hpp>
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
 
@@ -129,6 +130,10 @@ namespace android {
 
       /// apply local update to boot flag value copy, return stale local overrides
       base::Result<void> ApplyLocalOverride(const std::string& flag_value_file);
+
+      /// get all current server override
+      base::Result<std::vector<aconfig_storage::FlagValueAndInfoSummary>>
+          GetAllServerOverrides();
 
       private:
 

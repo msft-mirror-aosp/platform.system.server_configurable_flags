@@ -10,6 +10,7 @@ cc_binary {
   ],
   static_libs: [
     "libaconfig_new_storage_flags",
+    "libaconfig_storage_file_cc",
     "libaconfig_storage_read_api_cc",
     "libaconfig_storage_write_api_cc",
     "libaconfig_storage_protos_cc",
