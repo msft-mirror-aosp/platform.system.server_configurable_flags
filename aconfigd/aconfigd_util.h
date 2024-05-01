@@ -20,6 +20,11 @@
 #include <android-base/result.h>
 #include <android-base/file.h>
 
+#define RETURN_IF_ERROR(RESULT, ERROR) \
+if (!RESULT.ok()) {\
+  return android::base::Error() << ERROR << ": " << RESULT.error();\
+}
+
 namespace android {
   namespace aconfigd {
 
@@ -31,11 +36,14 @@ namespace android {
                               const std::string& dst,
                               mode_t mode);
 
-  /// Get a file's timestamp
-  base::Result<int> GetFileTimeStamp(const std::string& file);
+  /// Get a file's timestamp in nano second
+  base::Result<uint64_t> GetFileTimeStamp(const std::string& file);
 
   /// Check if file exists
   bool FileExists(const std::string& file);
+
+  /// Check if file exists and has non zero size
+  bool FileNonZeroSize(const std::string& file);
 
   /// Read protobuf from file
   template <typename T>

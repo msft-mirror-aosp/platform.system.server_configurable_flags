@@ -88,19 +88,25 @@ Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mod
   return {};
 }
 
-/// Get a file's timestamp
-Result<int> GetFileTimeStamp(const std::string& file) {
+/// Get a file's timestamp in nano second
+Result<uint64_t> GetFileTimeStamp(const std::string& file) {
   struct stat st;
   int result = stat(file.c_str(), &st);
   if (result == -1) {
     return ErrnoError() << "stat() failed";
   }
-  return static_cast<int>(st.st_mtim.tv_sec);
+  uint64_t timestamp = st.st_mtim.tv_sec*1000000000 + st.st_mtim.tv_nsec;
+  return timestamp;
 }
 
 bool FileExists(const std::string& file) {
   struct stat st;
   return stat(file.c_str(), &st) == 0 ? true : false;
+}
+
+bool FileNonZeroSize(const std::string& file) {
+  struct stat st;
+  return stat(file.c_str(), &st) == 0 ? st.st_size > 0 : false;
 }
 
 } // namespace aconfig
