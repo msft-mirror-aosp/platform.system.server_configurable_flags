@@ -76,16 +76,35 @@ class AconfigdTest : public ::testing::Test {
       return Error() << "failed to serialize pb to string";
     }
 
-    auto result = TEMP_FAILURE_RETRY(
-        send(*sock_fd, message_string.c_str(), message_string.size(), 0));
-    if (result != static_cast<long>(message_string.size())) {
-      return ErrnoError() << "send() failed";
+    unsigned char bytes[4];
+    uint32_t msg_size = message_string.size();
+    bytes[0] = (msg_size >> 24) & 0xFF;
+    bytes[1] = (msg_size >> 16) & 0xFF;
+    bytes[2] = (msg_size >> 8) & 0xFF;
+    bytes[3] = (msg_size >> 0) & 0xFF;
+
+    auto num_bytes = TEMP_FAILURE_RETRY(send(*sock_fd, bytes, 4, 0));
+    if (num_bytes != 4) {
+      return ErrnoError() << "send() failed for msg size";
     }
 
-    char buffer[kBufferSize] = {};
-    auto num_bytes = TEMP_FAILURE_RETRY(recv(*sock_fd, buffer, sizeof(buffer), 0));
-    if (num_bytes < 0) {
-      return ErrnoError() << "recv() failed";
+    num_bytes = TEMP_FAILURE_RETRY(
+        send(*sock_fd, message_string.c_str(), message_string.size(), 0));
+    if (num_bytes != static_cast<long>(message_string.size())) {
+      return ErrnoError() << "send() failed for msg";
+    }
+
+    num_bytes = TEMP_FAILURE_RETRY(recv(*sock_fd, bytes, 4, 0));
+    if (num_bytes != 4) {
+      return ErrnoError() << "recv() failed for return msg size";
+    }
+
+    uint32_t payload_size =
+        uint32_t(bytes[0]<<24 | bytes[1]<<16 | bytes[2]<<8 | bytes[3]);
+    char buffer[payload_size];
+    num_bytes = TEMP_FAILURE_RETRY(recv(*sock_fd, buffer, payload_size, 0));
+    if (num_bytes != payload_size) {
+      return ErrnoError() << "recv() failed for return msg";
     }
 
     auto return_messages = StorageReturnMessages{};

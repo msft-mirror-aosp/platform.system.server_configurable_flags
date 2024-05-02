@@ -26,9 +26,6 @@ namespace android {
     /// Aconfigd socket name
     static constexpr char kAconfigdSocket[] = "aconfigd";
 
-    /// Socket message buffer size
-    static constexpr size_t kBufferSize = 4096;
-
     /// Persistent storage records pb file full path
     static constexpr char kPersistentStorageRecordsFileName[] =
         "/metadata/aconfig/persistent_storage_file_records.pb";

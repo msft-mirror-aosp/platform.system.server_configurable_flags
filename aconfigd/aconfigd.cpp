@@ -535,6 +535,12 @@ void HandleSocketRequest(const StorageRequestMessage& message,
       *errmsg = "Unknown message type from aconfigd socket";
       break;
   }
+
+  if (return_message.has_error_message()) {
+    LOG(ERROR) << "Failed to handle socket request: " << return_message.error_message();
+  } else {
+    LOG(INFO) << "Successfully handled socket request";
+  }
 }
 
 } // namespace aconfigd
