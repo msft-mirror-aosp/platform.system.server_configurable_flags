@@ -24,6 +24,7 @@
 #include "aconfigd_util.h"
 
 using namespace android::aconfigd;
+using namespace android::base;
 
 static int aconfigd_init() {
   auto init_result = InitializeInMemoryStorageRecords();
@@ -57,6 +58,70 @@ static int aconfigd_init() {
   return 0;
 }
 
+/// receive storage requests from socket
+static Result<StorageRequestMessages> receiveMessage(int client_fd) {
+  unsigned char size_buffer[4] = {};
+  auto num_bytes = TEMP_FAILURE_RETRY(
+      recv(client_fd, size_buffer, 4, 0));
+  if (num_bytes < 0) {
+    return ErrnoError() << "failed to read number of bytes from aconfigd socket";
+  } else if (num_bytes != 4) {
+    return Error() << "expecting 4 bytes from aconfigd socket, received " << num_bytes;
+  }
+  uint32_t payload_size = uint32_t(
+      size_buffer[0]<<24 | size_buffer[1]<<16 | size_buffer[2]<<8 | size_buffer[3]);
+
+  char payload_buffer[payload_size];
+  num_bytes = TEMP_FAILURE_RETRY(
+      recv(client_fd, payload_buffer, payload_size, 0));
+  if (num_bytes < 0) {
+    return ErrnoError() << "failed to read payload from aconfigd socket";
+  } else if (num_bytes != payload_size) {
+    return Error() << "expecting " << payload_size
+                   << " bytes of payload from aconfigd socket, received " << num_bytes;
+  }
+  auto msg = std::string(payload_buffer, num_bytes);
+
+  auto requests = StorageRequestMessages{};
+  if (!requests.ParseFromString(msg)) {
+      return Error() << "Could not parse message from aconfig storage init socket";
+  }
+  return requests;
+}
+
+/// send return acknowledgement
+static Result<void> sendMessage(int client_fd, const StorageReturnMessages& msg) {
+  auto content = std::string();
+  if (!msg.SerializeToString(&content)) {
+    return Error() << "failed to serialize return messages to string";
+  }
+
+  unsigned char bytes[4];
+  uint32_t msg_size = content.size();
+  bytes[0] = (msg_size >> 24) & 0xFF;
+  bytes[1] = (msg_size >> 16) & 0xFF;
+  bytes[2] = (msg_size >> 8) & 0xFF;
+  bytes[3] = (msg_size >> 0) & 0xFF;
+
+  auto num_bytes = TEMP_FAILURE_RETRY(send(client_fd, bytes, 4, 0));
+  if (num_bytes < 0) {
+    return ErrnoError() << "send() failed for return msg size";
+  } else if (num_bytes != 4) {
+    return Error() << "send() failed for return msg size, sent " << num_bytes
+                   << " bytes expect 4 bytes";
+  }
+
+  num_bytes = TEMP_FAILURE_RETRY(send(client_fd, content.c_str(), content.size(), 0));
+  if (num_bytes < 0) {
+    return ErrnoError() << "send() failed for return msg";
+  } else if (num_bytes != content.size()) {
+    return Error() << "send() failed for return msg, sent " << num_bytes
+                   << " bytes expect " << content.size() << " bytes";
+  }
+
+  return {};
+}
+
 static int aconfigd_start() {
   auto init_result = InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
@@ -88,51 +153,29 @@ static int aconfigd_start() {
         aconfigd_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len, SOCK_CLOEXEC));
     if (client_fd == -1) {
       PLOG(ERROR) << "failed to establish connection";
-      break;
+      continue;
     }
-    LOG(INFO) << "received a client requests";
+    LOG(INFO) << "received client requests";
 
-    char buffer[kBufferSize] = {};
-    auto num_bytes = TEMP_FAILURE_RETRY(recv(client_fd, buffer, sizeof(buffer), 0));
-    if (num_bytes < 0) {
-      PLOG(ERROR) << "failed to read from aconfigd socket";
-      break;
-    } else if (num_bytes == 0) {
-      LOG(ERROR) << "failed to read from aconfigd socket, empty message";
-      break;
-    }
-    auto msg = std::string(buffer, num_bytes);
-
-    auto messages = StorageRequestMessages{};
-    if (!messages.ParseFromString(msg)) {
-      LOG(ERROR) << "Could not parse message from aconfig storage init socket";
+    auto requests = receiveMessage(client_fd.get());
+    if (!requests.ok()) {
+      LOG(ERROR) << requests.error();
       continue;
     }
 
     auto return_messages = StorageReturnMessages();
-    for (auto& msg : messages.msgs()) {
+    for (auto& request : requests->msgs()) {
       auto* return_msg = return_messages.add_msgs();
-      HandleSocketRequest(msg, *return_msg);
-      if (!return_msg->has_error_message()) {
-        LOG(ERROR) << "failed to handle socket request: " << return_msg->error_message();
-      }
+      HandleSocketRequest(request, *return_msg);
     }
 
-    auto return_content = std::string();
-    if (!return_messages.SerializeToString(&return_content)) {
-      LOG(ERROR) << "failed to serialize return messages to string";
-      continue;
-    }
-
-    auto num = TEMP_FAILURE_RETRY(
-        send(client_fd, return_content.c_str(), return_content.size(), 0));
-    if (num != static_cast<long>(return_content.size())) {
-      PLOG(ERROR) << "failed to send return message";
+    auto result = sendMessage(client_fd.get(), return_messages);
+    if (!result.ok()) {
+      LOG(ERROR) << result.error();
     }
   }
 
   return 1;
-
 }
 
 int main(int argc, char** argv) {
