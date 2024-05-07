@@ -475,7 +475,7 @@ Result<void> InitializePlatformStorage() {
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
 
-    if (!FileExists(value_file)) {
+    if (!FileNonZeroSize(value_file)) {
       continue;
     }
 
@@ -534,6 +534,12 @@ void HandleSocketRequest(const StorageRequestMessage& message,
       auto* errmsg = return_message.mutable_error_message();
       *errmsg = "Unknown message type from aconfigd socket";
       break;
+  }
+
+  if (return_message.has_error_message()) {
+    LOG(ERROR) << "Failed to handle socket request: " << return_message.error_message();
+  } else {
+    LOG(INFO) << "Successfully handled socket request";
   }
 }
 

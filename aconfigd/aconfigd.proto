@@ -15,6 +15,7 @@
  */
 
 syntax = "proto2";
+package android.aconfigd;
 option optimize_for = LITE_RUNTIME;
 
 // incoming request to aconfigd
@@ -48,11 +49,15 @@ message StorageRequestMessage {
     optional string flag_name = 2;
   }
 
+  // reset all storage
+  message ResetStorageMessage {}
+
   oneof msg {
     NewStorageMessage new_storage_message = 1;
     FlagOverrideMessage flag_override_message = 2;
     FlagQueryMessage flag_query_message = 3;
     RemoveLocalOverrideMessage remove_local_override_message = 4;
+    ResetStorageMessage reset_storage_message = 5;
   };
 }
 

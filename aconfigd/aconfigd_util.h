@@ -42,6 +42,9 @@ namespace android {
   /// Check if file exists
   bool FileExists(const std::string& file);
 
+  /// Check if file exists and has non zero size
+  bool FileNonZeroSize(const std::string& file);
+
   /// Read protobuf from file
   template <typename T>
   base::Result<T> ReadPbFromFile(const std::string& pb_file) {
