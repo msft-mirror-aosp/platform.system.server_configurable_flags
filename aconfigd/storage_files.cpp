@@ -57,7 +57,7 @@ namespace android {
   }
 
   /// map a storage file
-  base::Result<MappedStorageFile> StorageFiles::MapStorageFile(StorageFileType file_type) {
+  base::Result<MappedStorageFile*> StorageFiles::MapStorageFile(StorageFileType file_type) {
     switch (file_type) {
       case StorageFileType::package_map:
         if (storage_record_.package_map.empty()) {
@@ -77,7 +77,7 @@ namespace android {
   }
 
   /// map a mutable storage file
-  base::Result<MutableMappedStorageFile> StorageFiles::MapMutableStorageFile(
+  base::Result<MutableMappedStorageFile*> StorageFiles::MapMutableStorageFile(
       StorageFileType file_type) {
     switch (file_type) {
       case StorageFileType::flag_val:
@@ -105,7 +105,7 @@ namespace android {
         return base::Error() << "Failed to map package map file for " << container_
                              << ": " << package_map.error();
       }
-      package_map_.reset(new MappedStorageFile(*package_map));
+      package_map_.reset(*package_map);
     }
     return package_map_.get();
   }
@@ -118,7 +118,7 @@ namespace android {
         return base::Error() << "Failed to map flag map file for " << container_
                              << ": " << flag_map.error();
       }
-      flag_map_.reset(new MappedStorageFile(*flag_map));
+      flag_map_.reset(*flag_map);
     }
     return flag_map_.get();
   }
@@ -131,7 +131,7 @@ namespace android {
         return base::Error() << "Failed to map persist flag value file for " << container_
                              << ": " << flag_val.error();
       }
-      persist_flag_val_.reset(new MutableMappedStorageFile(*flag_val));
+      persist_flag_val_.reset(*flag_val);
     }
     return persist_flag_val_.get();
   }
@@ -144,7 +144,7 @@ namespace android {
         return base::Error() << "Failed to map persist flag info file for " << container_
                              << ": " << flag_info.error();
       }
-      persist_flag_info_.reset(new MutableMappedStorageFile(*flag_info));
+      persist_flag_info_.reset(*flag_info);
     }
     return persist_flag_info_.get();
   }
@@ -546,11 +546,13 @@ namespace android {
   /// apply local update to boot flag value copy
   base::Result<void> StorageFiles::ApplyLocalOverride(
       const std::string& flag_value_file) {
-    auto mutable_flag_value_file = map_mutable_storage_file(flag_value_file);
-    if (!mutable_flag_value_file.ok()) {
+    auto mutable_flag_value_file_result = map_mutable_storage_file(flag_value_file);
+    if (!mutable_flag_value_file_result.ok()) {
       return base::Error() << "Failed to map flag value file for local override: "
-                           << mutable_flag_value_file.error();
+                           << mutable_flag_value_file_result.error();
     }
+    auto mutable_flag_value_file = std::unique_ptr<MutableMappedStorageFile>(
+        *mutable_flag_value_file_result);
 
     auto pb_file = storage_record_.local_overrides;
     auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
@@ -627,6 +629,14 @@ namespace android {
     }
 
     return server_updated_flags;
+  }
+
+  /// reset mapped files
+  void StorageFiles::resetMappedFiles() {
+    package_map_.reset(nullptr);
+    flag_map_.reset(nullptr);
+    persist_flag_val_.reset(nullptr);
+    persist_flag_info_.reset(nullptr);
   }
 
   } // namespace aconfigd

@@ -135,14 +135,17 @@ namespace android {
       base::Result<std::vector<aconfig_storage::FlagValueAndInfoSummary>>
           GetAllServerOverrides();
 
+      /// reset mapped files
+      void resetMappedFiles();
+
       private:
 
       /// map a storage file
-      base::Result<aconfig_storage::MappedStorageFile> MapStorageFile(
+      base::Result<aconfig_storage::MappedStorageFile*> MapStorageFile(
           aconfig_storage::StorageFileType file_type);
 
       /// map a mutable storage file
-      base::Result<aconfig_storage::MutableMappedStorageFile> MapMutableStorageFile(
+      base::Result<aconfig_storage::MutableMappedStorageFile*> MapMutableStorageFile(
           aconfig_storage::StorageFileType file_type);
 
       /// get package map
