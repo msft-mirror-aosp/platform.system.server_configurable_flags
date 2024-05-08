@@ -176,6 +176,11 @@ class AconfigdTest : public ::testing::Test {
     msg->set_remove_all(remove_all);
   }
 
+  void add_reset_storage_message(StorageRequestMessages& messages) {
+    auto* message = messages.add_msgs();
+    auto* msg = message->mutable_reset_storage_message();
+  }
+
   void verify_new_storage_return_message(const StorageReturnMessage& msg) {
     ASSERT_TRUE(msg.has_new_storage_message()) << msg.error_message();
     auto message = msg.new_storage_message();
@@ -205,6 +210,10 @@ class AconfigdTest : public ::testing::Test {
     ASSERT_TRUE(msg.has_remove_local_override_message()) << msg.error_message();
   }
 
+  void verify_reset_storage_message(const StorageReturnMessage& msg) {
+    ASSERT_TRUE(msg.has_reset_storage_message()) << msg.error_message();
+  }
+
   void verify_error_message(const StorageReturnMessage& msg,
                             const std::string& errmsg) {
     ASSERT_TRUE(msg.has_error_message());
@@ -217,7 +226,7 @@ class AconfigdTest : public ::testing::Test {
     // create a flag val file for each test point. make sure that these temp flag
     // value file timestamp are different, so that it will trigger a storage update.
     auto test_dir = base::GetExecutableDirectory();
-    for (int i=0; i<12; ++i) {
+    for (int i=0; i<13; ++i) {
       std::this_thread::sleep_for(std::chrono::milliseconds{10});
       auto temp_value_file = copy_to_temp_file(test_dir + "/tests/flag.val");
       ASSERT_TRUE(temp_value_file.ok());
@@ -421,6 +430,28 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
   verify_new_storage_return_message(return_msgs->msgs(0));
   verify_error_message(return_msgs->msgs(1), "Failed to find owning container");
   verify_error_message(return_msgs->msgs(2), "Flag does not exist");
+}
+
+TEST_F(AconfigdTest, storage_reset) {
+  auto request_msgs = StorageRequestMessages();
+  add_new_storage_message(request_msgs, temp_flag_vals_[12]);
+  add_flag_override_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  add_flag_override_message(
+      request_msgs, "com.android.aconfig.storage.test_2", "disabled_rw", "true", true);
+  add_reset_storage_message(request_msgs);
+  add_flag_query_message(
+      request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
+  add_flag_query_message(
+      request_msgs, "com.android.aconfig.storage.test_2", "disabled_rw");
+  auto return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_new_storage_return_message(return_msgs->msgs(0));
+  verify_flag_override_return_message(return_msgs->msgs(1));
+  verify_flag_override_return_message(return_msgs->msgs(2));
+  verify_reset_storage_message(return_msgs->msgs(3));
+  verify_flag_query_return_message(return_msgs->msgs(4), "true", "", true, false, false);
+  verify_flag_query_return_message(return_msgs->msgs(5), "false", "", true, false, false);
 }
 
 } // namespace aconfigd
