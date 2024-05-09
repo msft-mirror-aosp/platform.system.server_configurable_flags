@@ -21,6 +21,7 @@
 #include <android-base/result.h>
 
 #include <aconfigd.pb.h>
+#include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfig_storage/aconfig_storage_file.hpp>
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
@@ -37,6 +38,7 @@ namespace android {
       std::string flag_val;
       std::string flag_info;
       std::string local_overrides;
+      std::string default_flag_val;
       uint64_t timestamp;
     };
 
@@ -44,8 +46,15 @@ namespace android {
     class StorageFiles {
       public:
 
-      /// constructor
-      StorageFiles(const std::string& container, const StorageRecord& record);
+      /// constructor for a new storage file set
+      StorageFiles(const std::string& container,
+                   const std::string& package_map,
+                   const std::string& flag_map,
+                   const std::string& flag_val,
+                   base::Result<void>& status);
+
+      /// constructor for existing new storage file set
+      StorageFiles(const aconfig_storage_metadata::storage_file_info& pb);
 
       /// destructor
       ~StorageFiles() = default;
@@ -62,9 +71,6 @@ namespace android {
       const StorageRecord& GetStorageRecord() {
         return storage_record_;
       }
-
-      /// set storage record
-      void SetStorageRecord(const StorageRecord& record);
 
       /// return result for package and flag context
       struct PackageFlagContext {
@@ -135,8 +141,11 @@ namespace android {
       base::Result<std::vector<aconfig_storage::FlagValueAndInfoSummary>>
           GetAllServerOverrides();
 
-      /// reset mapped files
-      void resetMappedFiles();
+      /// remove all but local storage files
+      base::Result<void> RemoveAllButLocalOverrideFile();
+
+      /// remove all storage files
+      base::Result<void> RemoveAllFiles();
 
       private:
 

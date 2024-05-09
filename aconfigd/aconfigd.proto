@@ -83,12 +83,15 @@ message StorageReturnMessage {
 
   message RemoveLocalOverrideReturnMessage {}
 
+  message ResetStorageReturnMessage {}
+
   oneof msg {
     NewStorageReturnMessage new_storage_message = 1;
     FlagOverrideReturnMessage flag_override_message = 2;
     FlagQueryReturnMessage flag_query_message = 3;
     RemoveLocalOverrideReturnMessage remove_local_override_message = 4;
-    string error_message = 5;
+    ResetStorageReturnMessage reset_storage_message = 5;
+    string error_message = 6;
   };
 }
 
