@@ -33,11 +33,15 @@ namespace android {
                              const std::string& package_map,
                              const std::string& flag_map,
                              const std::string& flag_val,
-                             base::Result<void>& status)
+                             base::Result<void>& status,
+                             const std::string& aconfig_dir)
       : container_(container)
       , storage_record_()
       , package_map_(nullptr)
       , flag_map_(nullptr)
+      , boot_flag_val_(nullptr)
+      , boot_flag_info_(nullptr)
+      , default_flag_val_(nullptr)
       , persist_flag_val_(nullptr)
       , persist_flag_info_(nullptr) {
     auto timestamp = GetFileTimeStamp(flag_val);
@@ -53,9 +57,8 @@ namespace android {
     }
 
     // copy flag value file
-    auto flags_dir = std::string("/metadata/aconfig/flags/");
-    auto target_value_file = flags_dir + container + ".val";
-    auto copy_result = CopyFile(flag_val, target_value_file, 0644);
+    auto persist_flag_val = aconfig_dir + "/flags/" + container + ".val";
+    auto copy_result = CopyFile(flag_val, persist_flag_val, 0644);
     if (!copy_result.ok()) {
       status = base::Error() << "CopyFile failed for " << flag_val << ": "
                              << copy_result.error();
@@ -63,8 +66,8 @@ namespace android {
     }
 
     // create flag info file
-    auto flag_info = std::string("/metadata/aconfig/flags/") + container + ".info";
-    auto create_result = create_flag_info(package_map, flag_map, flag_info);
+    auto persist_flag_info = aconfig_dir + "/flags/" + container + ".info";
+    auto create_result = create_flag_info(package_map, flag_map, persist_flag_info);
     if (!create_result.ok()) {
       status = base::Error() << "failed to create flag info file for " << container
                              << create_result.error();
@@ -75,29 +78,38 @@ namespace android {
     storage_record_.container = container;
     storage_record_.package_map = package_map;
     storage_record_.flag_map = flag_map;
-    storage_record_.flag_val = target_value_file;
-    storage_record_.flag_info = flag_info;
-    storage_record_.local_overrides = flags_dir + container + "_local_overrides.pb";
+    storage_record_.persist_flag_val = persist_flag_val;
+    storage_record_.persist_flag_info = persist_flag_info;
+    storage_record_.local_overrides =
+        aconfig_dir + "/flags/" + container + "_local_overrides.pb";
     storage_record_.default_flag_val = flag_val;
+    storage_record_.boot_flag_val = aconfig_dir + "/boot/" + container + ".val";
+    storage_record_.boot_flag_info = aconfig_dir + "/boot/" + container + ".info";
     storage_record_.timestamp = *timestamp;
   }
 
   /// constructor for existing new storage file set
-  StorageFiles::StorageFiles(const aconfig_storage_metadata::storage_file_info& pb)
+  StorageFiles::StorageFiles(const aconfig_storage_metadata::storage_file_info& pb,
+                             const std::string& aconfig_dir)
       : container_(pb.container())
       , storage_record_()
       , package_map_(nullptr)
       , flag_map_(nullptr)
+      , boot_flag_val_(nullptr)
+      , boot_flag_info_(nullptr)
+      , default_flag_val_(nullptr)
       , persist_flag_val_(nullptr)
       , persist_flag_info_(nullptr) {
     storage_record_.version = pb.version();
     storage_record_.container = pb.container();
     storage_record_.package_map = pb.package_map();
     storage_record_.flag_map = pb.flag_map();
-    storage_record_.flag_val = pb.flag_val();
-    storage_record_.flag_info = pb.flag_info();
+    storage_record_.persist_flag_val = pb.flag_val();
+    storage_record_.persist_flag_info = pb.flag_info();
     storage_record_.local_overrides = pb.local_overrides();
     storage_record_.default_flag_val = pb.default_flag_val();
+    storage_record_.boot_flag_val = aconfig_dir + "/boot/" + pb.container() + ".val";
+    storage_record_.boot_flag_info = aconfig_dir + "/boot/" + pb.container() + ".info";
     storage_record_.timestamp = pb.timestamp();
   }
 
@@ -115,6 +127,8 @@ namespace android {
       storage_record_ = std::move(rhs.storage_record_);
       package_map_ = std::move(rhs.package_map_);
       flag_map_ = std::move(rhs.flag_map_);
+      boot_flag_val_ = std::move(rhs.boot_flag_val_);
+      boot_flag_info_ = std::move(rhs.boot_flag_info_);
       persist_flag_val_ = std::move(rhs.persist_flag_val_);
       persist_flag_info_ = std::move(rhs.persist_flag_info_);
     }
@@ -136,6 +150,18 @@ namespace android {
         }
         return map_storage_file(storage_record_.flag_map);
         break;
+      case StorageFileType::flag_val:
+        if (storage_record_.boot_flag_val.empty()) {
+          return Error() << "Missing boot flag value file";
+        }
+        return map_storage_file(storage_record_.boot_flag_val);
+        break;
+      case StorageFileType::flag_info:
+        if (storage_record_.boot_flag_info.empty()) {
+          return Error() << "Missing boot flag info file";
+        }
+        return map_storage_file(storage_record_.boot_flag_info);
+        break;
       default:
         return base::Error() << "Unsupported storage file type for MappedStorageFile";
     }
@@ -146,16 +172,16 @@ namespace android {
       StorageFileType file_type) {
     switch (file_type) {
       case StorageFileType::flag_val:
-        if (storage_record_.flag_val.empty()) {
+        if (storage_record_.persist_flag_val.empty()) {
           return Error() << "Missing persist flag value file";
         }
-        return map_mutable_storage_file(storage_record_.flag_val);
+        return map_mutable_storage_file(storage_record_.persist_flag_val);
         break;
       case StorageFileType::flag_info:
-        if (storage_record_.flag_info.empty()) {
+        if (storage_record_.persist_flag_info.empty()) {
           return Error() << "Missing persist flag info file";
         }
-        return map_mutable_storage_file(storage_record_.flag_info);
+        return map_mutable_storage_file(storage_record_.persist_flag_info);
         break;
       default:
         return base::Error() << "Unsupported storage file type to map";
@@ -186,6 +212,48 @@ namespace android {
       flag_map_.reset(*flag_map);
     }
     return flag_map_.get();
+  }
+
+  /// get boot flag val
+  base::Result<const MappedStorageFile*> StorageFiles::GetBootFlagVal() {
+    if (!boot_flag_val_) {
+      auto flag_val = MapStorageFile(StorageFileType::flag_val);
+      if (!flag_val.ok()) {
+        return base::Error() << "Failed to map boot flag value file for " << container_
+                             << ": " << flag_val.error();
+      }
+      boot_flag_val_.reset(*flag_val);
+    }
+    return boot_flag_val_.get();
+  }
+
+  /// get boot flag info
+  base::Result<const MappedStorageFile*> StorageFiles::GetBootFlagInfo() {
+    if (!boot_flag_info_) {
+      auto flag_info = MapStorageFile(StorageFileType::flag_info);
+      if (!flag_info.ok()) {
+        return base::Error() << "Failed to map boot flag info file for " << container_
+                             << ": " << flag_info.error();
+      }
+      boot_flag_info_.reset(*flag_info);
+    }
+    return boot_flag_info_.get();
+  }
+
+  /// get default flag val
+  base::Result<const MappedStorageFile*> StorageFiles::GetDefaultFlagVal() {
+    if (!default_flag_val_) {
+      if (storage_record_.default_flag_val.empty()) {
+        return Error() << "Missing default flag value file";
+      }
+      auto flag_val = map_storage_file(storage_record_.default_flag_val);
+      if (!flag_val.ok()) {
+        return base::Error() << "Failed to map default flag value file for " << container_
+                             << ": " << flag_val.error();
+      }
+      default_flag_val_.reset(*flag_val);
+    }
+    return default_flag_val_.get();
   }
 
   /// get persist flag val
@@ -233,6 +301,74 @@ namespace android {
     }
 
     return !(*attribute & FlagInfoBit::IsReadWrite);
+  }
+
+  /// apply local update to boot flag value copy
+  base::Result<void> StorageFiles::ApplyLocalOverrideToBootFlagValue() {
+    auto mutable_flag_value_file_result = map_mutable_storage_file(
+        storage_record_.boot_flag_val);
+    if (!mutable_flag_value_file_result.ok()) {
+      return base::Error() << "Failed to map boot flag value file for local override: "
+                           << mutable_flag_value_file_result.error();
+    }
+    auto mutable_flag_value_file = std::unique_ptr<MutableMappedStorageFile>(
+        *mutable_flag_value_file_result);
+
+    auto pb_file = storage_record_.local_overrides;
+    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    if (!pb.ok()) {
+      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+    }
+
+    auto applied_overrides = LocalFlagOverrides();
+    for (auto& entry : pb->overrides()) {
+
+      // find flag value type and index
+      auto context = GetPackageFlagContext(entry.package_name(), entry.flag_name());
+      if (!context.ok()) {
+        return base::Error() << "Failed to find flag: " << context.error();
+      }
+
+      if (!context->flag_exists) {
+        continue;
+      }
+
+      // apply a local override
+      switch (context->value_type) {
+        case FlagValueType::Boolean: {
+          // validate value
+          if (entry.flag_value() != "true" && entry.flag_value() != "false") {
+            return base::Error() << "Invalid boolean flag value, it should be true|false";
+          }
+
+          // update flag value
+          auto update_result = set_boolean_flag_value(
+              *mutable_flag_value_file, context->flag_index, entry.flag_value() == "true");
+          if (!update_result.ok()) {
+            return base::Error() << "Failed to update flag value: " << update_result.error();
+          }
+
+          break;
+        }
+        default:
+          return base::Error() << "Unsupported flag value type";
+      }
+
+      // mark it applied
+      auto new_applied = applied_overrides.add_overrides();
+      new_applied->set_package_name(entry.package_name());
+      new_applied->set_flag_name(entry.flag_name());
+      new_applied->set_flag_value(entry.flag_value());
+    }
+
+    if (pb->overrides_size() != applied_overrides.overrides_size()) {
+      auto result = WritePbToFile<LocalFlagOverrides>(applied_overrides, pb_file);
+      if (!result.ok()) {
+        return base::Error() << result.error();
+      }
+    }
+
+    return {};
   }
 
   /// Find flag value type and global index
@@ -345,9 +481,16 @@ namespace android {
     return *attribute;
   }
 
-  /// get server or default flag value
+  /// get server flag value
   base::Result<std::string> StorageFiles::GetServerFlagValue(
       const PackageFlagContext& context) {
+    auto attribute = GetFlagAttribute(context);
+    RETURN_IF_ERROR(attribute, "Failed to get flag attribute");
+
+    if (!(*attribute & FlagInfoBit::HasServerOverride)) {
+      return std::string();
+    }
+
     if (!context.flag_exists) {
       return base::Error() << "Flag does not exist";
     }
@@ -373,9 +516,16 @@ namespace android {
     return base::Error() << "Failed to find flag in value file";
   }
 
-  /// get local flag value, will error if local flag value does not exist
+  /// get local flag value
   base::Result<std::string> StorageFiles::GetLocalFlagValue(
       const PackageFlagContext& context) {
+    auto attribute = GetFlagAttribute(context);
+    RETURN_IF_ERROR(attribute, "Failed to get flag attribute");
+
+    if (!(*attribute & FlagInfoBit::HasLocalOverride)) {
+      return std::string();
+    }
+
     if (!context.flag_exists) {
       return base::Error() << "Flag does not exist";
     }
@@ -394,6 +544,62 @@ namespace android {
     }
 
     return base::Error() << "Failed to find flag local override value";
+  }
+
+  /// get boot flag value
+  base::Result<std::string> StorageFiles::GetBootFlagValue(
+      const PackageFlagContext& context) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
+    auto flag_value_file = GetBootFlagVal();
+    if (!flag_value_file.ok()) {
+      return base::Error() << flag_value_file.error();
+    }
+
+    switch (context.value_type) {
+      case FlagValueType::Boolean: {
+        auto value = get_boolean_flag_value(**flag_value_file, context.flag_index);
+        if (!value.ok()) {
+          return base::Error() << "Failed to get boot flag value: " << value.error();
+        }
+        return *value ? "true" : "false";
+        break;
+      }
+      default:
+        return base::Error() << "Unsupported flag value type";
+    }
+
+    return base::Error() << "Failed to find flag in value file";
+  }
+
+  /// get default flag value
+  base::Result<std::string> StorageFiles::GetDefaultFlagValue(
+      const PackageFlagContext& context) {
+    if (!context.flag_exists) {
+      return base::Error() << "Flag does not exist";
+    }
+
+    auto flag_value_file = GetDefaultFlagVal();
+    if (!flag_value_file.ok()) {
+      return base::Error() << flag_value_file.error();
+    }
+
+    switch (context.value_type) {
+      case FlagValueType::Boolean: {
+        auto value = get_boolean_flag_value(**flag_value_file, context.flag_index);
+        if (!value.ok()) {
+          return base::Error() << "Failed to get default flag value: " << value.error();
+        }
+        return *value ? "true" : "false";
+        break;
+      }
+      default:
+        return base::Error() << "Unsupported flag value type";
+    }
+
+    return base::Error() << "Failed to find flag in value file";
   }
 
   /// server flag override, update persistent flag value
@@ -589,81 +795,13 @@ namespace android {
     return {};
   }
 
-  /// apply local update to boot flag value copy
-  base::Result<void> StorageFiles::ApplyLocalOverride(
-      const std::string& flag_value_file) {
-    auto mutable_flag_value_file_result = map_mutable_storage_file(flag_value_file);
-    if (!mutable_flag_value_file_result.ok()) {
-      return base::Error() << "Failed to map flag value file for local override: "
-                           << mutable_flag_value_file_result.error();
-    }
-    auto mutable_flag_value_file = std::unique_ptr<MutableMappedStorageFile>(
-        *mutable_flag_value_file_result);
-
-    auto pb_file = storage_record_.local_overrides;
-    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
-    if (!pb.ok()) {
-      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
-    }
-
-    auto applied_overrides = LocalFlagOverrides();
-    for (auto& entry : pb->overrides()) {
-
-      // find flag value type and index
-      auto context = GetPackageFlagContext(entry.package_name(), entry.flag_name());
-      if (!context.ok()) {
-        return base::Error() << "Failed to find flag: " << context.error();
-      }
-
-      if (!context->flag_exists) {
-        continue;
-      }
-
-      // apply a local override
-      switch (context->value_type) {
-        case FlagValueType::Boolean: {
-          // validate value
-          if (entry.flag_value() != "true" && entry.flag_value() != "false") {
-            return base::Error() << "Invalid boolean flag value, it should be true|false";
-          }
-
-          // update flag value
-          auto update_result = set_boolean_flag_value(
-              *mutable_flag_value_file, context->flag_index, entry.flag_value() == "true");
-          if (!update_result.ok()) {
-            return base::Error() << "Failed to update flag value: " << update_result.error();
-          }
-
-          break;
-        }
-        default:
-          return base::Error() << "Unsupported flag value type";
-      }
-
-      // mark it applied
-      auto new_applied = applied_overrides.add_overrides();
-      new_applied->set_package_name(entry.package_name());
-      new_applied->set_flag_name(entry.flag_name());
-      new_applied->set_flag_value(entry.flag_value());
-    }
-
-    if (pb->overrides_size() != applied_overrides.overrides_size()) {
-      auto result = WritePbToFile<LocalFlagOverrides>(applied_overrides, pb_file);
-      if (!result.ok()) {
-        return base::Error() << result.error();
-      }
-    }
-
-    return {};
-  }
-
   /// get all current server override
   base::Result<std::vector<FlagValueAndInfoSummary>>
       StorageFiles::GetAllServerOverrides() {
     auto listed_flags = list_flags_with_info(storage_record_.package_map,
                                              storage_record_.flag_map,
-                                             storage_record_.flag_val,
-                                             storage_record_.flag_info);
+                                             storage_record_.persist_flag_val,
+                                             storage_record_.persist_flag_info);
     RETURN_IF_ERROR(
         listed_flags, "Failed to list all flags for " + storage_record_.container);
 
@@ -678,28 +816,68 @@ namespace android {
   }
 
   /// remove all storage files
-  Result<void> StorageFiles::RemoveAllButLocalOverrideFile() {
+  Result<void> StorageFiles::RemoveAllPersistFilesButLocalOverrideFile() {
     package_map_.reset(nullptr);
     flag_map_.reset(nullptr);
     persist_flag_val_.reset(nullptr);
     persist_flag_info_.reset(nullptr);
-    if (unlink(storage_record_.flag_val.c_str()) == -1) {
-      return base::ErrnoError() << "unlink() failed for " << storage_record_.flag_val;
+    if (unlink(storage_record_.persist_flag_val.c_str()) == -1) {
+      return base::ErrnoError() << "unlink() failed for " << storage_record_.persist_flag_val;
     }
-    if (unlink(storage_record_.flag_info.c_str()) == -1) {
-      return base::ErrnoError() << "unlink() failed for " << storage_record_.flag_info;
+    if (unlink(storage_record_.persist_flag_info.c_str()) == -1) {
+      return base::ErrnoError() << "unlink() failed for " << storage_record_.persist_flag_info;
     }
     return {};
   }
 
   /// remove all storage files
-  Result<void> StorageFiles::RemoveAllFiles() {
-    auto remove = RemoveAllButLocalOverrideFile();
+  Result<void> StorageFiles::RemoveAllPersistFiles() {
+    auto remove = RemoveAllPersistFilesButLocalOverrideFile();
     RETURN_IF_ERROR(remove, "");
     if (unlink(storage_record_.local_overrides.c_str()) == -1) {
       return base::ErrnoError() << "unlink() failed for " << storage_record_.local_overrides;
     }
     return {};
+  }
+
+  /// create boot flag value and info files
+  base::Result<void> StorageFiles::CreateBootStorageFiles() {
+    // If the boot copy already exists, do nothing. Never update the boot copy, the boot
+    // copy should be boot stable. So in the following scenario: a container storage
+    // file boot copy is created, then an updated container is mounted along side existing
+    // container. In this case, we should update the persistent storage file copy. But
+    // never touch the current boot copy.
+    if (FileExists(storage_record_.boot_flag_val)
+        && FileExists(storage_record_.boot_flag_info)) {
+      return {};
+    }
+
+    auto copy = CopyFile(
+        storage_record_.persist_flag_val, storage_record_.boot_flag_val, 0444);
+    RETURN_IF_ERROR(copy, "CopyFile failed for " + storage_record_.persist_flag_val);
+
+    copy = CopyFile(
+        storage_record_.persist_flag_info, storage_record_.boot_flag_info, 0444);
+    RETURN_IF_ERROR(copy, "CopyFile failed for " + storage_record_.persist_flag_info);
+
+    // change boot flag value file to 0644 to allow write
+    if (chmod(storage_record_.boot_flag_val.c_str(), 0644) == -1) {
+      return base::ErrnoError() << "chmod() failed to set to 0644";
+    };
+
+    auto apply_result = ApplyLocalOverrideToBootFlagValue();
+
+    // change boot flag value file back to 0444
+    if (chmod(storage_record_.boot_flag_val.c_str(), 0444) == -1) {
+      if (!apply_result.ok()) {
+        return base::ErrnoError() << apply_result.error() << ": "
+                                  << "chmod() failed to set to 0444";
+      } else {
+        return base::ErrnoError() << "chmod() failed to set to 0444";
+      }
+    };
+
+    return apply_result;
   }
 
   } // namespace aconfigd
