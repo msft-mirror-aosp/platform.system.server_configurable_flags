@@ -28,7 +28,7 @@ namespace android {
   namespace aconfigd {
 
   /// get storage files object for a container
-  Result<StorageFiles*> StorageFilesManager::GetStorageFiles(
+  base::Result<StorageFiles*> StorageFilesManager::GetStorageFiles(
       const std::string& container) {
     if (all_storage_files_.count(container) == 0) {
       return Error() << "Missing storage files object for " << container;
@@ -37,9 +37,37 @@ namespace android {
   }
 
   /// create mapped files for a container
-  void StorageFilesManager::AddStorageFiles(const std::string& container,
-                                            const StorageRecord& record) {
-      all_storage_files_[container] = std::make_unique<StorageFiles>(container, record);
+  base::Result<void> StorageFilesManager::AddNewStorageFiles(const std::string& container,
+                                                             const std::string& package_map,
+                                                             const std::string& flag_map,
+                                                             const std::string& flag_val) {
+    if (all_storage_files_.count(container)) {
+      return Error() << "Storage file object for " << container << " already exists";
+    }
+
+    auto result = Result<void>({});
+    auto storage_files = std::make_unique<StorageFiles>(
+          container, package_map, flag_map, flag_val, result);
+
+    if (!result.ok()) {
+      return Error() << "Failed to create storage file object for " << container
+                     << ": " << result.error();
+    }
+
+    all_storage_files_[container].reset(storage_files.release());
+    return {};
+  }
+
+  /// restore storage files object from a storage record pb entry
+  base::Result<void> StorageFilesManager::RestoreStorageFiles(
+      const aconfig_storage_metadata::storage_file_info& pb) {
+    if (all_storage_files_.count(pb.container())) {
+      return Error() << "Storage file object for " << pb.container()
+                     << " already exists";
+    }
+
+    all_storage_files_[pb.container()] = std::make_unique<StorageFiles>(pb);
+    return {};
   }
 
   /// get container name given flag package name
@@ -83,6 +111,15 @@ namespace android {
       all_records.push_back(&(files_ptr->GetStorageRecord()));
     }
     return all_records;
+  }
+
+  /// get all containers
+  std::vector<std::string> StorageFilesManager::GetAllContainers() {
+    auto containers = std::vector<std::string>();
+    for (const auto& item : all_storage_files_) {
+      containers.push_back(item.first);
+    }
+    return containers;
   }
 
   } // namespace aconfigd

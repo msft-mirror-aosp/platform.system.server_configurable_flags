@@ -47,8 +47,14 @@ namespace android {
       base::Result<StorageFiles*> GetStorageFiles(const std::string& container);
 
       /// create mapped files for a container
-      void AddStorageFiles(const std::string& container,
-                           const StorageRecord& record);
+      base::Result<void> AddNewStorageFiles(const std::string& container,
+                                            const std::string& package_map,
+                                            const std::string& flag_map,
+                                            const std::string& flag_val);
+
+      /// restore storage files object from a storage record pb entry
+      base::Result<void> RestoreStorageFiles(
+          const aconfig_storage_metadata::storage_file_info& pb);
 
       /// get container name given flag package name
       base::Result<std::string> GetContainer(const std::string& package);
@@ -59,6 +65,14 @@ namespace android {
       /// has container
       bool HasContainer(const std::string& container) {
         return all_storage_files_.count(container);
+      }
+
+      /// get all containers
+      std::vector<std::string> GetAllContainers();
+
+      /// remove storage record
+      bool RemoveContainer(const std::string& container) {
+        return all_storage_files_.erase(container);
       }
 
       private:

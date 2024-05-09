@@ -17,6 +17,8 @@
 #include <protos/aconfig_storage_metadata.pb.h>
 #include <android-base/logging.h>
 
+#include <unistd.h>
+
 #include "aconfigd.h"
 #include "aconfigd_util.h"
 #include "storage_files.h"
@@ -26,14 +28,77 @@ using namespace aconfig_storage;
 namespace android {
   namespace aconfigd {
 
-  /// constructor
-  StorageFiles::StorageFiles(const std::string& container, const StorageRecord& record)
+  /// constructor for a new storage file set
+  StorageFiles::StorageFiles(const std::string& container,
+                             const std::string& package_map,
+                             const std::string& flag_map,
+                             const std::string& flag_val,
+                             base::Result<void>& status)
       : container_(container)
-      , storage_record_(record)
+      , storage_record_()
       , package_map_(nullptr)
       , flag_map_(nullptr)
       , persist_flag_val_(nullptr)
       , persist_flag_info_(nullptr) {
+    auto timestamp = GetFileTimeStamp(flag_val);
+    if (!timestamp.ok()) {
+      status = base::Error() << "failed to get time stamp: " << timestamp.error();
+      return;
+    }
+
+    auto version = get_storage_file_version(flag_val);
+    if (!version.ok()) {
+      status = base::Error() << "failed to get file version: " << version.error();
+      return;
+    }
+
+    // copy flag value file
+    auto flags_dir = std::string("/metadata/aconfig/flags/");
+    auto target_value_file = flags_dir + container + ".val";
+    auto copy_result = CopyFile(flag_val, target_value_file, 0644);
+    if (!copy_result.ok()) {
+      status = base::Error() << "CopyFile failed for " << flag_val << ": "
+                             << copy_result.error();
+      return;
+    }
+
+    // create flag info file
+    auto flag_info = std::string("/metadata/aconfig/flags/") + container + ".info";
+    auto create_result = create_flag_info(package_map, flag_map, flag_info);
+    if (!create_result.ok()) {
+      status = base::Error() << "failed to create flag info file for " << container
+                             << create_result.error();
+      return;
+    }
+
+    storage_record_.version = *version;
+    storage_record_.container = container;
+    storage_record_.package_map = package_map;
+    storage_record_.flag_map = flag_map;
+    storage_record_.flag_val = target_value_file;
+    storage_record_.flag_info = flag_info;
+    storage_record_.local_overrides = flags_dir + container + "_local_overrides.pb";
+    storage_record_.default_flag_val = flag_val;
+    storage_record_.timestamp = *timestamp;
+  }
+
+  /// constructor for existing new storage file set
+  StorageFiles::StorageFiles(const aconfig_storage_metadata::storage_file_info& pb)
+      : container_(pb.container())
+      , storage_record_()
+      , package_map_(nullptr)
+      , flag_map_(nullptr)
+      , persist_flag_val_(nullptr)
+      , persist_flag_info_(nullptr) {
+    storage_record_.version = pb.version();
+    storage_record_.container = pb.container();
+    storage_record_.package_map = pb.package_map();
+    storage_record_.flag_map = pb.flag_map();
+    storage_record_.flag_val = pb.flag_val();
+    storage_record_.flag_info = pb.flag_info();
+    storage_record_.local_overrides = pb.local_overrides();
+    storage_record_.default_flag_val = pb.default_flag_val();
+    storage_record_.timestamp = pb.timestamp();
   }
 
   /// move constructor
@@ -160,26 +225,14 @@ namespace android {
       return base::Error() << flag_info_file.error();
     }
 
-    auto ro_info_file = MappedStorageFile();
-    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
-    ro_info_file.file_size = (*flag_info_file)->file_size;
     auto attribute = get_flag_attribute(
-        ro_info_file, context.value_type, context.flag_index);
+        **flag_info_file, context.value_type, context.flag_index);
 
     if (!attribute.ok()) {
       return base::Error() << "Failed to get flag attribute";
     }
 
     return !(*attribute & FlagInfoBit::IsReadWrite);
-  }
-
-  /// set storage record
-  void StorageFiles::SetStorageRecord(const StorageRecord& record) {
-    storage_record_ = record;
-    package_map_.reset(nullptr);
-    flag_map_.reset(nullptr);
-    persist_flag_val_.reset(nullptr);
-    persist_flag_info_.reset(nullptr);
   }
 
   /// Find flag value type and global index
@@ -284,11 +337,7 @@ namespace android {
       return base::Error() << flag_info_file.error();
     }
 
-    auto ro_info_file = MappedStorageFile();
-    ro_info_file.file_ptr = (*flag_info_file)->file_ptr;
-    ro_info_file.file_size = (*flag_info_file)->file_size;
-
-    auto attribute = get_flag_attribute(ro_info_file, context.value_type, context.flag_index);
+    auto attribute = get_flag_attribute(**flag_info_file, context.value_type, context.flag_index);
     if (!attribute.ok()) {
       return base::Error() << "Failed to get flag info: " << attribute.error();
     }
@@ -310,10 +359,7 @@ namespace android {
 
     switch (context.value_type) {
       case FlagValueType::Boolean: {
-        auto ro_value_file = MappedStorageFile();
-        ro_value_file.file_ptr = (*flag_value_file)->file_ptr;
-        ro_value_file.file_size = (*flag_value_file)->file_size;
-        auto value = get_boolean_flag_value(ro_value_file, context.flag_index);
+        auto value = get_boolean_flag_value(**flag_value_file, context.flag_index);
         if (!value.ok()) {
           return base::Error() << "Failed to get flag value: " << value.error();
         }
@@ -631,12 +677,29 @@ namespace android {
     return server_updated_flags;
   }
 
-  /// reset mapped files
-  void StorageFiles::resetMappedFiles() {
+  /// remove all storage files
+  Result<void> StorageFiles::RemoveAllButLocalOverrideFile() {
     package_map_.reset(nullptr);
     flag_map_.reset(nullptr);
     persist_flag_val_.reset(nullptr);
     persist_flag_info_.reset(nullptr);
+    if (unlink(storage_record_.flag_val.c_str()) == -1) {
+      return base::ErrnoError() << "unlink() failed for " << storage_record_.flag_val;
+    }
+    if (unlink(storage_record_.flag_info.c_str()) == -1) {
+      return base::ErrnoError() << "unlink() failed for " << storage_record_.flag_info;
+    }
+    return {};
+  }
+
+  /// remove all storage files
+  Result<void> StorageFiles::RemoveAllFiles() {
+    auto remove = RemoveAllButLocalOverrideFile();
+    RETURN_IF_ERROR(remove, "");
+    if (unlink(storage_record_.local_overrides.c_str()) == -1) {
+      return base::ErrnoError() << "unlink() failed for " << storage_record_.local_overrides;
+    }
+    return {};
   }
 
   } // namespace aconfigd
