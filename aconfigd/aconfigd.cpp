@@ -186,7 +186,7 @@ Result<void> PersistLocalOverrides(const std::string& container) {
 
 /// Persist server flag overrides
 Result<void> PersistServerOverrides(
-    const std::vector<FlagValueAndInfoSummary>& current_server_overrides) {
+    const std::vector<StorageFiles::ServerOverride>& current_server_overrides) {
   for (const auto& server_override : current_server_overrides) {
     auto update = HandleServerFlagOverride(server_override.package_name,
                                            server_override.flag_name,
@@ -225,12 +225,12 @@ Result<bool> AddOrUpdateStorageForContainer(const std::string& container,
     return false;
   }
 
-  auto current_server_overrides = std::vector<FlagValueAndInfoSummary>();
+  auto current_server_overrides = std::vector<StorageFiles::ServerOverride>();
   if (update_existing_container) {
     // backup server flag update
     auto storage_files = storage_files_manager.GetStorageFiles(container);
     RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
-    auto current_server_overrides_result = (**storage_files).GetAllServerOverrides();
+    auto current_server_overrides_result = (**storage_files).GetServerFlagValues();
     RETURN_IF_ERROR(current_server_overrides_result,
                     "Failed to find all existing server overrides");
     current_server_overrides = *current_server_overrides_result;
@@ -323,6 +323,7 @@ void HandleFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
   if (!result.ok()) {
     auto* errmsg = return_msg.mutable_error_message();
     *errmsg = "Flag query failed: " + result.error().message();
+    return;
   } else {
     auto [server_value, local_value, boot_value, default_value, attribute] = *result;
     auto result_msg = return_msg.mutable_flag_query_message();
@@ -430,26 +431,82 @@ void HandleStorageReset(StorageReturnMessage& return_msg) {
   }
 }
 
+/// List flags in a package
+Result<std::vector<StorageFiles::FlagSnapshot>> ListFlagsInPackage(
+    const std::string& package) {
+  auto container = storage_files_manager.GetContainer(package);
+  RETURN_IF_ERROR(container, "Failed to find owning container for " + package);
+  auto storage_files = storage_files_manager.GetStorageFiles(*container);
+  RETURN_IF_ERROR(storage_files, "Failed to get storage files object for " + *container);
+
+  return (**storage_files).ListFlags(package);
+}
+
+/// List flags in a container
+Result<std::vector<StorageFiles::FlagSnapshot>> ListFlagsInContainer(
+    const std::string& container) {
+  auto storage_files = storage_files_manager.GetStorageFiles(container);
+  RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+  return (**storage_files).ListFlags();
+}
+
+/// List all flags
+Result<std::vector<StorageFiles::FlagSnapshot>> ListAllFlags() {
+  auto all_containers = storage_files_manager.GetAvailableContainers();
+  RETURN_IF_ERROR(all_containers, "Failed to find all available containers");
+
+  auto total_flags = std::vector<StorageFiles::FlagSnapshot>();
+  for (const auto& container : *all_containers) {
+    auto flags = ListFlagsInContainer(container);
+    RETURN_IF_ERROR(flags, "Failed to list flags in " + container);
+    total_flags.reserve(total_flags.size() + flags->size());
+    total_flags.insert(total_flags.end(), flags->begin(), flags->end());
+  }
+  return total_flags;
+}
 
 /// Handle list storage
 void HandleListStorage(const StorageRequestMessage::ListStorageMessage& msg,
                        StorageReturnMessage& return_message) {
+  auto flags = Result<std::vector<StorageFiles::FlagSnapshot>>();
   switch (msg.msg_case()) {
     case StorageRequestMessage::ListStorageMessage::kAll: {
+      flags = ListAllFlags();
       break;
     }
     case StorageRequestMessage::ListStorageMessage::kContainer: {
-      auto container = msg.container();
+      flags = ListFlagsInContainer(msg.container());
       break;
     }
     case StorageRequestMessage::ListStorageMessage::kPackageName: {
-      auto package_name = msg.package_name();
+      flags = ListFlagsInPackage(msg.package_name());
       break;
     }
     default:
       auto errmsg = return_message.mutable_error_message();
       *errmsg = "Unknown list storage message type from aconfigd socket";
-      break;
+      return;
+  }
+
+  if (!flags.ok()) {
+    auto errmsg = return_message.mutable_error_message();
+    *errmsg = "Failed to list flags: " + flags.error().message();
+    return;
+  }
+
+  auto* result_msg = return_message.mutable_list_storage_message();
+  for (const auto& flag : *flags) {
+    auto* flag_msg = result_msg->add_flags();
+    flag_msg->set_package_name(flag.package_name);
+    flag_msg->set_flag_name(flag.flag_name);
+    flag_msg->set_server_flag_value(flag.server_flag_value);
+    flag_msg->set_local_flag_value(flag.local_flag_value);
+    flag_msg->set_boot_flag_value(flag.boot_flag_value);
+    flag_msg->set_default_flag_value(flag.default_flag_value);
+    flag_msg->set_is_readwrite(flag.is_readwrite);
+    flag_msg->set_has_server_override(flag.has_server_override);
+    flag_msg->set_has_local_override(flag.has_local_override);
   }
 }
 
