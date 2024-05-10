@@ -16,6 +16,7 @@
 
 #include "server_configurable_flags/disaster_recovery.h"
 #include "server_configurable_flags/get_flags.h"
+#include "server_configurable_flags/get_cflags.h"
 
 #if defined(__BIONIC__)
 #include <cutils/properties.h>
@@ -135,5 +136,17 @@ std::string GetServerConfigurableFlag(const std::string& experiment_category_nam
   return android::base::GetProperty(
       MakeSystemPropertyName(experiment_category_name, experiment_flag_name), default_value);
 }
-
 }  // namespace server_configurable_flags
+
+const char* server_configurable_flags_GetServerConfigurableFlag(
+    const char* experiment_category_name,
+    const char* experiment_flag_name,
+    const char* default_value) {
+  auto val = server_configurable_flags::GetServerConfigurableFlag(
+      std::string(experiment_category_name),
+      std::string(experiment_flag_name),
+      std::string(default_value));
+  char* ret = (char*)malloc(sizeof(char) * (val.size()+1));
+  memcpy(ret, val.c_str(), val.size()+1);
+  return ret;
+}
