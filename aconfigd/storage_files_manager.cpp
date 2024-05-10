@@ -122,5 +122,23 @@ namespace android {
     return containers;
   }
 
+  /// get all available containers
+  base::Result<std::vector<std::string>>
+      StorageFilesManager::GetAvailableContainers() {
+    auto containers = std::vector<std::string>();
+    auto records_pb = ReadPbFromFile<aconfig_storage_metadata::storage_files>(
+        kAvailableStorageRecordsFileName);
+    if (!records_pb.ok()) {
+      return base::Error() << "Unable to read available storage records: "
+                           << records_pb.error();
+    }
+
+    for (auto& entry : records_pb->files()) {
+      containers.push_back(entry.container());
+    }
+
+    return containers;
+  }
+
   } // namespace aconfigd
 } // namespace android

@@ -144,9 +144,15 @@ namespace android {
       /// remove all local overrides
       base::Result<void> RemoveAllLocalFlagValue();
 
+      /// strcut for server flag value entries
+      struct ServerOverride {
+        std::string package_name;
+        std::string flag_name;
+        std::string flag_value;
+      };
+
       /// get all current server override
-      base::Result<std::vector<aconfig_storage::FlagValueAndInfoSummary>>
-          GetAllServerOverrides();
+      base::Result<std::vector<ServerOverride>> GetServerFlagValues();
 
       /// remove all persist storage files but local storage files
       base::Result<void> RemoveAllPersistFilesButLocalOverrideFile();
@@ -156,6 +162,23 @@ namespace android {
 
       /// create boot flag value and info files
       base::Result<void> CreateBootStorageFiles();
+
+      /// struct for flag snapshot
+      struct FlagSnapshot {
+        std::string package_name;
+        std::string flag_name;
+        std::string server_flag_value;
+        std::string local_flag_value;
+        std::string boot_flag_value;
+        std::string default_flag_value;
+        bool is_readwrite;
+        bool has_server_override;
+        bool has_local_override;
+      };
+
+      /// list flags
+      base::Result<std::vector<FlagSnapshot>> ListFlags(
+          const std::string& package = "");
 
       private:
 
