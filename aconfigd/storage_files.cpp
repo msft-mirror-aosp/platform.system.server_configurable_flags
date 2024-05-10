@@ -796,8 +796,8 @@ namespace android {
   }
 
   /// get all current server override
-  base::Result<std::vector<FlagValueAndInfoSummary>>
-      StorageFiles::GetAllServerOverrides() {
+  base::Result<std::vector<StorageFiles::ServerOverride>>
+      StorageFiles::GetServerFlagValues() {
     auto listed_flags = list_flags_with_info(storage_record_.package_map,
                                              storage_record_.flag_map,
                                              storage_record_.persist_flag_val,
@@ -805,10 +805,14 @@ namespace android {
     RETURN_IF_ERROR(
         listed_flags, "Failed to list all flags for " + storage_record_.container);
 
-    auto server_updated_flags = std::vector<FlagValueAndInfoSummary>();
+    auto server_updated_flags = std::vector<ServerOverride>();
     for (const auto& flag : *listed_flags) {
       if (flag.has_server_override) {
-        server_updated_flags.push_back(flag);
+        auto server_override = ServerOverride();
+        server_override.package_name = std::move(flag.package_name);
+        server_override.flag_name = std::move(flag.flag_name);
+        server_override.flag_value = std::move(flag.flag_value);
+        server_updated_flags.push_back(server_override);
       }
     }
 
@@ -878,6 +882,96 @@ namespace android {
     };
 
     return apply_result;
+  }
+
+  /// list flags
+  base::Result<std::vector<StorageFiles::FlagSnapshot>> StorageFiles::ListFlags(
+      const std::string& package) {
+    if (!package.empty()) {
+      auto has_package = HasPackage(package);
+      RETURN_IF_ERROR(
+          has_package, package + " does not exist in " + storage_record_.container);
+    }
+
+    // fill default value
+    auto snapshots = std::vector<FlagSnapshot>();
+    auto idxs = std::unordered_map<std::string, size_t>();
+
+    auto listed_flags = list_flags(storage_record_.package_map,
+                                   storage_record_.flag_map,
+                                   storage_record_.default_flag_val);
+    RETURN_IF_ERROR(
+        listed_flags, "Failed to list default flags for " + storage_record_.container);
+
+    for (auto const& flag : *listed_flags) {
+      if (package.empty() || package == flag.package_name) {
+        idxs[flag.package_name + "/" + flag.flag_name] = snapshots.size();
+        snapshots.emplace_back();
+        auto& snapshot = snapshots.back();
+        snapshot.package_name = std::move(flag.package_name);
+        snapshot.flag_name = std::move(flag.flag_name);
+        snapshot.default_flag_value = std::move(flag.flag_value);
+      }
+    }
+
+    // fill boot value
+    listed_flags = list_flags(storage_record_.package_map,
+                              storage_record_.flag_map,
+                              storage_record_.boot_flag_val);
+    RETURN_IF_ERROR(
+        listed_flags, "Failed to list boot flags for " + storage_record_.container);
+
+    for (auto const& flag : *listed_flags) {
+      auto full_flag_name = flag.package_name + "/" + flag.flag_name;
+      if (!idxs.count(full_flag_name)) {
+        continue;
+      }
+      auto idx = idxs[full_flag_name];
+      snapshots[idx].boot_flag_value = std::move(flag.flag_value);
+    }
+
+    // fill server value and attribute
+    auto listed_flags_with_info = list_flags_with_info(storage_record_.package_map,
+                                                       storage_record_.flag_map,
+                                                       storage_record_.persist_flag_val,
+                                                       storage_record_.persist_flag_info);
+    RETURN_IF_ERROR(listed_flags_with_info,
+                    "Failed to list persist flags for " + storage_record_.container);
+
+    for (auto const& flag : *listed_flags_with_info) {
+      auto full_flag_name = flag.package_name + "/" + flag.flag_name;
+      if (!idxs.count(full_flag_name)) {
+        continue;
+      }
+      auto idx = idxs[full_flag_name];
+      if (flag.has_server_override) {
+        snapshots[idx].server_flag_value = std::move(flag.flag_value);
+      }
+      snapshots[idx].is_readwrite = flag.is_readwrite;
+      snapshots[idx].has_server_override = flag.has_server_override;
+      snapshots[idx].has_local_override = flag.has_local_override;
+    }
+
+    // fill local value
+    auto const& pb_file = storage_record_.local_overrides;
+    auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    RETURN_IF_ERROR(pb, "Failed to read pb from " + pb_file);
+    for (const auto& flag : pb->overrides()) {
+      auto full_flag_name = flag.package_name() + "/" + flag.flag_name();
+      if (!idxs.count(full_flag_name)) {
+        continue;
+      }
+      auto idx = idxs[full_flag_name];
+      snapshots[idx].local_flag_value = flag.flag_value();
+    }
+
+    auto comp = [](const auto& v1, const auto& v2){
+      return (v1.package_name + "/" + v1.flag_name) <
+          (v2.package_name + "/" + v2.flag_name);
+    };
+    std::sort(snapshots.begin(), snapshots.end(), comp);
+
+    return snapshots;
   }
 
   } // namespace aconfigd
