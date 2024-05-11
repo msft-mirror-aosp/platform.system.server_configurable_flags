@@ -70,6 +70,9 @@ namespace android {
       /// get all containers
       std::vector<std::string> GetAllContainers();
 
+      /// get all available containers
+      base::Result<std::vector<std::string>> GetAvailableContainers();
+
       /// remove storage record
       bool RemoveContainer(const std::string& container) {
         return all_storage_files_.erase(container);
