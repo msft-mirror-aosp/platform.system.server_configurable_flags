@@ -43,20 +43,17 @@ namespace {
 
 /// Write in memory aconfig storage records to the persistent pb file
 Result<void> WritePersistentStorageRecordsToFile() {
-  auto records_pb = aconfig_storage_metadata::storage_files();
+  auto records_pb = PersistStorageRecords();
   for (auto const& record : storage_files_manager.GetAllStorageRecords()) {
-    auto* record_pb = records_pb.add_files();
+    auto* record_pb = records_pb.add_records();
     record_pb->set_version(record->version);
     record_pb->set_container(record->container);
     record_pb->set_package_map(record->package_map);
     record_pb->set_flag_map(record->flag_map);
-    record_pb->set_flag_val(record->persist_flag_val);
-    record_pb->set_flag_info(record->persist_flag_info);
-    record_pb->set_local_overrides(record->local_overrides);
-    record_pb->set_default_flag_val(record->default_flag_val);
+    record_pb->set_flag_val(record->flag_val);
     record_pb->set_timestamp(record->timestamp);
   }
-  return WritePbToFile<storage_records_pb>(records_pb, kPersistentStorageRecordsFileName);
+  return WritePbToFile<PersistStorageRecords>(records_pb, kPersistentStorageRecordsFileName);
 }
 
 /// Handle a local flag override request
@@ -144,8 +141,6 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   record_pb->set_flag_map(record.flag_map);
   record_pb->set_flag_val(record.boot_flag_val);
   record_pb->set_flag_info(record.boot_flag_info);
-  record_pb->set_default_flag_val(record.default_flag_val);
-  record_pb->set_local_overrides(record.local_overrides);
   record_pb->set_timestamp(record.timestamp);
 
   auto write_result = WritePbToFile<storage_records_pb>(
@@ -408,7 +403,7 @@ Result<void> ResetAllStorage() {
     // recreate for current available storage files
     if (available_containers.count(container)) {
       auto add_result = storage_files_manager.AddNewStorageFiles(
-          container, record.package_map, record.flag_map, record.default_flag_val);
+          container, record.package_map, record.flag_map, record.flag_val);
       RETURN_IF_ERROR(add_result, "Failed to add a new storage object for " + container);
     }
   }
@@ -514,10 +509,10 @@ void HandleListStorage(const StorageRequestMessage::ListStorageMessage& msg,
 
 /// Initialize in memory aconfig storage records
 Result<void> InitializeInMemoryStorageRecords() {
-  auto records_pb = ReadPbFromFile<storage_records_pb>(kPersistentStorageRecordsFileName);
+  auto records_pb = ReadPbFromFile<PersistStorageRecords>(kPersistentStorageRecordsFileName);
   RETURN_IF_ERROR(records_pb, "Unable to read persistent storage records");
 
-  for (const auto& entry : records_pb->files()) {
+  for (const auto& entry : records_pb->records()) {
     storage_files_manager.RestoreStorageFiles(entry);
   }
 

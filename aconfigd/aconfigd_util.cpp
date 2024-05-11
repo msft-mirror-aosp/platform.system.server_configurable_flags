@@ -65,6 +65,12 @@ Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mod
     return ErrnoError() << "open() failed for " << src;
   }
 
+  if (FileExists(dst.c_str())) {
+    if (chmod(dst.c_str(), 0644) == -1) {
+      return ErrnoError() << "chmod() failed for " << dst;
+    }
+  }
+
   android::base::unique_fd dst_fd(TEMP_FAILURE_RETRY(
       open(dst.c_str(), O_WRONLY | O_CREAT | O_NOFOLLOW | O_TRUNC | O_CLOEXEC, 0644)));
   if (dst_fd == -1) {
