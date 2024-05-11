@@ -61,26 +61,33 @@ static int aconfigd_init() {
 /// receive storage requests from socket
 static Result<StorageRequestMessages> receiveMessage(int client_fd) {
   unsigned char size_buffer[4] = {};
-  auto num_bytes = TEMP_FAILURE_RETRY(
-      recv(client_fd, size_buffer, 4, 0));
-  if (num_bytes < 0) {
-    return ErrnoError() << "failed to read number of bytes from aconfigd socket";
-  } else if (num_bytes != 4) {
-    return Error() << "expecting 4 bytes from aconfigd socket, received " << num_bytes;
+  int size_bytes_received = 0;
+  while (size_bytes_received < 4) {
+    auto chunk_bytes =
+        TEMP_FAILURE_RETRY(recv(client_fd, size_buffer + size_bytes_received,
+                                4 - size_bytes_received, 0));
+    if (chunk_bytes < 0) {
+      return ErrnoError() << "received error polling for message size";
+    }
+    size_bytes_received += chunk_bytes;
   }
+
   uint32_t payload_size = uint32_t(
       size_buffer[0]<<24 | size_buffer[1]<<16 | size_buffer[2]<<8 | size_buffer[3]);
 
   char payload_buffer[payload_size];
-  num_bytes = TEMP_FAILURE_RETRY(
-      recv(client_fd, payload_buffer, payload_size, 0));
-  if (num_bytes < 0) {
-    return ErrnoError() << "failed to read payload from aconfigd socket";
-  } else if (num_bytes != payload_size) {
-    return Error() << "expecting " << payload_size
-                   << " bytes of payload from aconfigd socket, received " << num_bytes;
+  int payload_bytes_received = 0;
+  while (payload_bytes_received < payload_size) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        recv(client_fd, payload_buffer + payload_bytes_received,
+             payload_size - payload_bytes_received, 0));
+    if (chunk_bytes < 0) {
+      return ErrnoError() << "received error polling for message payload";
+    }
+    payload_bytes_received += chunk_bytes;
   }
-  auto msg = std::string(payload_buffer, num_bytes);
+
+  auto msg = std::string(payload_buffer, payload_bytes_received);
 
   auto requests = StorageRequestMessages{};
   if (!requests.ParseFromString(msg)) {

@@ -50,8 +50,8 @@ Result<void> WritePersistentStorageRecordsToFile() {
     record_pb->set_container(record->container);
     record_pb->set_package_map(record->package_map);
     record_pb->set_flag_map(record->flag_map);
-    record_pb->set_flag_val(record->flag_val);
-    record_pb->set_flag_info(record->flag_info);
+    record_pb->set_flag_val(record->persist_flag_val);
+    record_pb->set_flag_info(record->persist_flag_info);
     record_pb->set_local_overrides(record->local_overrides);
     record_pb->set_default_flag_val(record->default_flag_val);
     record_pb->set_timestamp(record->timestamp);
@@ -120,61 +120,18 @@ void HandleFlagOverride(const StorageRequestMessage::FlagOverrideMessage& msg,
   }
 }
 
-Result<void> ApplyLocalOverridesToBootCopy(const std::string& container,
-                                           const std::string& flag_value_file) {
-  auto storage_files = storage_files_manager.GetStorageFiles(container);
-  RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
-
-  // change boot flag value file to 0644 to allow write
-  if (chmod(flag_value_file.c_str(), 0644) == -1) {
-    return base::ErrnoError() << "chmod() failed";
-  };
-
-  auto applied = (**storage_files).ApplyLocalOverride(flag_value_file);
-  RETURN_IF_ERROR(applied, "Failed to apply local override");
-
-  // change boot flag value file back to 0444
-  if (chmod(flag_value_file.c_str(), 0444) == -1) {
-    return base::ErrnoError() << "chmod() failed";
-  };
-
-  return {};
-}
-
-
 /// Create boot flag value copy for a container
 Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   if (!storage_files_manager.HasContainer(container)) {
     return Error() << "Cannot create boot copy without persist copy for " << container;
   }
 
-  // create boot copy
-  auto src_value_file = std::string("/metadata/aconfig/flags/") + container + ".val";
-  auto dst_value_file = std::string("/metadata/aconfig/boot/") + container + ".val";
-  auto src_info_file = std::string("/metadata/aconfig/flags/") + container + ".info";
-  auto dst_info_file = std::string("/metadata/aconfig/boot/") + container + ".info";
-
-  // If the boot copy already exists, do nothing. Never update the boot copy, the boot
-  // copy should be boot stable. So in the following scenario: a container storage
-  // file boot copy is created, then an updated container is mounted along side existing
-  // container. In this case, we should update the persistent storage file copy. But
-  // never touch the current boot copy.
-  if (FileExists(dst_value_file) && FileExists(dst_info_file)) {
-    return {};
-  }
-
-  auto copy_result = CopyFile(src_value_file, dst_value_file, 0444);
-  RETURN_IF_ERROR(copy_result, "CopyFile failed for " + src_value_file);
-
-  auto apply_result = ApplyLocalOverridesToBootCopy(container, dst_value_file);
-  RETURN_IF_ERROR(apply_result, "Failed to apply local overrides to " + dst_value_file);
-
-  copy_result = CopyFile(src_info_file, dst_info_file, 0444);
-  RETURN_IF_ERROR(copy_result, "CopyFile failed for " + src_info_file);
-
-  // update available storage records pb
   auto storage_files = storage_files_manager.GetStorageFiles(container);
   RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+  auto copy_result = (**storage_files).CreateBootStorageFiles();
+  RETURN_IF_ERROR(copy_result, "Failed to create boot snapshot for " + container);
+
   const auto& record = (**storage_files).GetStorageRecord();
 
   auto available_pb = ReadPbFromFile<storage_records_pb>(kAvailableStorageRecordsFileName);
@@ -185,8 +142,8 @@ Result<void> CreateBootSnapshotForContainer(const std::string& container) {
   record_pb->set_container(record.container);
   record_pb->set_package_map(record.package_map);
   record_pb->set_flag_map(record.flag_map);
-  record_pb->set_flag_val(dst_value_file);
-  record_pb->set_flag_info(dst_info_file);
+  record_pb->set_flag_val(record.boot_flag_val);
+  record_pb->set_flag_info(record.boot_flag_info);
   record_pb->set_default_flag_val(record.default_flag_val);
   record_pb->set_local_overrides(record.local_overrides);
   record_pb->set_timestamp(record.timestamp);
@@ -229,7 +186,7 @@ Result<void> PersistLocalOverrides(const std::string& container) {
 
 /// Persist server flag overrides
 Result<void> PersistServerOverrides(
-    const std::vector<FlagValueAndInfoSummary>& current_server_overrides) {
+    const std::vector<StorageFiles::ServerOverride>& current_server_overrides) {
   for (const auto& server_override : current_server_overrides) {
     auto update = HandleServerFlagOverride(server_override.package_name,
                                            server_override.flag_name,
@@ -268,18 +225,18 @@ Result<bool> AddOrUpdateStorageForContainer(const std::string& container,
     return false;
   }
 
-  auto current_server_overrides = std::vector<FlagValueAndInfoSummary>();
+  auto current_server_overrides = std::vector<StorageFiles::ServerOverride>();
   if (update_existing_container) {
     // backup server flag update
     auto storage_files = storage_files_manager.GetStorageFiles(container);
     RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
-    auto current_server_overrides_result = (**storage_files).GetAllServerOverrides();
+    auto current_server_overrides_result = (**storage_files).GetServerFlagValues();
     RETURN_IF_ERROR(current_server_overrides_result,
                     "Failed to find all existing server overrides");
     current_server_overrides = *current_server_overrides_result;
 
     // clean up, leave local override pb file untouched
-    (**storage_files).RemoveAllButLocalOverrideFile();
+    (**storage_files).RemoveAllPersistFilesButLocalOverrideFile();
     storage_files_manager.RemoveContainer(container);
   }
 
@@ -328,10 +285,9 @@ void HandleNewStorage(const StorageRequestMessage::NewStorageMessage& msg,
   result_msg->set_storage_updated(*updated);
 }
 
-/// Get flag server value, local value and attribute
-Result<std::tuple<std::string, std::string, uint8_t>> GetFlagValueAndAttribute(
-    const std::string& package,
-    const std::string& flag) {
+/// Get flag server value, local value, boot value and attribute
+Result<std::tuple<std::string, std::string, std::string, std::string, uint8_t>>
+    GetFlagValueAndAttribute(const std::string& package, const std::string& flag) {
   auto container = storage_files_manager.GetContainer(package);
   RETURN_IF_ERROR(container, "Failed to find owning container");
 
@@ -341,34 +297,42 @@ Result<std::tuple<std::string, std::string, uint8_t>> GetFlagValueAndAttribute(
   auto context = (**storage_files).GetPackageFlagContext(package, flag);
   RETURN_IF_ERROR(context, "Failed to find package flag context");
 
-  auto server_value = (**storage_files).GetServerFlagValue(*context);
-  RETURN_IF_ERROR(server_value, "Failed to get server flag value");
-
   auto attribute = (**storage_files).GetFlagAttribute(*context);
   RETURN_IF_ERROR(context, "Failed to get flag attribute");
 
-  auto local_value = std::string();
-  if (*attribute & FlagInfoBit::HasLocalOverride) {
-    auto value = (**storage_files).GetLocalFlagValue(*context);
-    RETURN_IF_ERROR(value, "Failed to get local flag value");
-    local_value = *value;
-  }
+  auto server_value = (**storage_files).GetServerFlagValue(*context);
+  RETURN_IF_ERROR(server_value, "Failed to get server flag value");
 
-  return std::make_tuple(*server_value, local_value, *attribute);
+  auto local_value = (**storage_files).GetLocalFlagValue(*context);
+  RETURN_IF_ERROR(local_value, "Failed to get local flag value");
+
+  auto boot_value = (**storage_files).GetBootFlagValue(*context);
+  RETURN_IF_ERROR(boot_value, "Failed to get boot flag value");
+
+  auto default_value = (**storage_files).GetDefaultFlagValue(*context);
+  RETURN_IF_ERROR(default_value, "Failed to get default flag value");
+
+  return std::make_tuple(
+      *server_value, *local_value, *boot_value, *default_value, *attribute);
 }
 
 /// Handle a flag query request
-void HandlePersistFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
-                            StorageReturnMessage& return_msg) {
+void HandleFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
+                     StorageReturnMessage& return_msg) {
   auto result = GetFlagValueAndAttribute(msg.package_name(), msg.flag_name());
   if (!result.ok()) {
     auto* errmsg = return_msg.mutable_error_message();
     *errmsg = "Flag query failed: " + result.error().message();
+    return;
   } else {
-    auto [server_value, local_value, attribute] = *result;
+    auto [server_value, local_value, boot_value, default_value, attribute] = *result;
     auto result_msg = return_msg.mutable_flag_query_message();
+    result_msg->set_package_name(msg.package_name());
+    result_msg->set_flag_name(msg.flag_name());
     result_msg->set_server_flag_value(server_value);
     result_msg->set_local_flag_value(local_value);
+    result_msg->set_boot_flag_value(boot_value);
+    result_msg->set_default_flag_value(default_value);
     result_msg->set_has_server_override(attribute & FlagInfoBit::HasServerOverride);
     result_msg->set_is_readwrite(attribute & FlagInfoBit::IsReadWrite);
     result_msg->set_has_local_override(attribute & FlagInfoBit::HasLocalOverride);
@@ -438,7 +402,7 @@ Result<void> ResetAllStorage() {
     StorageRecord record = (**storage_files).GetStorageRecord();
 
     // delete all existing storage files
-    (**storage_files).RemoveAllFiles();
+    (**storage_files).RemoveAllPersistFiles();
     storage_files_manager.RemoveContainer(container);
 
     // recreate for current available storage files
@@ -464,6 +428,85 @@ void HandleStorageReset(StorageReturnMessage& return_msg) {
     *errmsg = "Failed to reset all storage: " + result.error().message();
   } else {
     return_msg.mutable_reset_storage_message();
+  }
+}
+
+/// List flags in a package
+Result<std::vector<StorageFiles::FlagSnapshot>> ListFlagsInPackage(
+    const std::string& package) {
+  auto container = storage_files_manager.GetContainer(package);
+  RETURN_IF_ERROR(container, "Failed to find owning container for " + package);
+  auto storage_files = storage_files_manager.GetStorageFiles(*container);
+  RETURN_IF_ERROR(storage_files, "Failed to get storage files object for " + *container);
+
+  return (**storage_files).ListFlags(package);
+}
+
+/// List flags in a container
+Result<std::vector<StorageFiles::FlagSnapshot>> ListFlagsInContainer(
+    const std::string& container) {
+  auto storage_files = storage_files_manager.GetStorageFiles(container);
+  RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+  return (**storage_files).ListFlags();
+}
+
+/// List all flags
+Result<std::vector<StorageFiles::FlagSnapshot>> ListAllFlags() {
+  auto all_containers = storage_files_manager.GetAvailableContainers();
+  RETURN_IF_ERROR(all_containers, "Failed to find all available containers");
+
+  auto total_flags = std::vector<StorageFiles::FlagSnapshot>();
+  for (const auto& container : *all_containers) {
+    auto flags = ListFlagsInContainer(container);
+    RETURN_IF_ERROR(flags, "Failed to list flags in " + container);
+    total_flags.reserve(total_flags.size() + flags->size());
+    total_flags.insert(total_flags.end(), flags->begin(), flags->end());
+  }
+  return total_flags;
+}
+
+/// Handle list storage
+void HandleListStorage(const StorageRequestMessage::ListStorageMessage& msg,
+                       StorageReturnMessage& return_message) {
+  auto flags = Result<std::vector<StorageFiles::FlagSnapshot>>();
+  switch (msg.msg_case()) {
+    case StorageRequestMessage::ListStorageMessage::kAll: {
+      flags = ListAllFlags();
+      break;
+    }
+    case StorageRequestMessage::ListStorageMessage::kContainer: {
+      flags = ListFlagsInContainer(msg.container());
+      break;
+    }
+    case StorageRequestMessage::ListStorageMessage::kPackageName: {
+      flags = ListFlagsInPackage(msg.package_name());
+      break;
+    }
+    default:
+      auto errmsg = return_message.mutable_error_message();
+      *errmsg = "Unknown list storage message type from aconfigd socket";
+      return;
+  }
+
+  if (!flags.ok()) {
+    auto errmsg = return_message.mutable_error_message();
+    *errmsg = "Failed to list flags: " + flags.error().message();
+    return;
+  }
+
+  auto* result_msg = return_message.mutable_list_storage_message();
+  for (const auto& flag : *flags) {
+    auto* flag_msg = result_msg->add_flags();
+    flag_msg->set_package_name(flag.package_name);
+    flag_msg->set_flag_name(flag.flag_name);
+    flag_msg->set_server_flag_value(flag.server_flag_value);
+    flag_msg->set_local_flag_value(flag.local_flag_value);
+    flag_msg->set_boot_flag_value(flag.boot_flag_value);
+    flag_msg->set_default_flag_value(flag.default_flag_value);
+    flag_msg->set_is_readwrite(flag.is_readwrite);
+    flag_msg->set_has_server_override(flag.has_server_override);
+    flag_msg->set_has_local_override(flag.has_local_override);
   }
 }
 
@@ -535,7 +578,7 @@ void HandleSocketRequest(const StorageRequestMessage& message,
       auto msg = message.flag_query_message();
       LOG(INFO) << "received a flag query request for " << msg.package_name()
                 << "/" << msg.flag_name();
-      HandlePersistFlagQuery(msg, return_message);
+      HandleFlagQuery(msg, return_message);
       break;
     }
     case StorageRequestMessage::kRemoveLocalOverrideMessage: {
@@ -552,6 +595,12 @@ void HandleSocketRequest(const StorageRequestMessage& message,
     case StorageRequestMessage::kResetStorageMessage: {
       LOG(INFO) << "received reset storage request";
       HandleStorageReset(return_message);
+      break;
+    }
+    case StorageRequestMessage::kListStorageMessage: {
+      auto msg = message.list_storage_message();
+      LOG(INFO) << "received list storage request";
+      HandleListStorage(msg, return_message);
       break;
     }
     default:

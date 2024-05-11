@@ -52,12 +52,22 @@ message StorageRequestMessage {
   // reset all storage
   message ResetStorageMessage {}
 
+  // list storage
+  message ListStorageMessage {
+    oneof msg {
+      bool all = 1;
+      string container = 2;
+      string package_name = 3;
+    }
+  }
+
   oneof msg {
     NewStorageMessage new_storage_message = 1;
     FlagOverrideMessage flag_override_message = 2;
     FlagQueryMessage flag_query_message = 3;
     RemoveLocalOverrideMessage remove_local_override_message = 4;
     ResetStorageMessage reset_storage_message = 5;
+    ListStorageMessage list_storage_message = 6;
   };
 }
 
@@ -74,16 +84,24 @@ message StorageReturnMessage {
   message FlagOverrideReturnMessage {}
 
   message FlagQueryReturnMessage {
-    optional string server_flag_value = 1;
-    optional string local_flag_value = 2;
-    optional bool has_server_override = 3;
-    optional bool is_readwrite = 4;
-    optional bool has_local_override = 5;
+    optional string package_name = 1;
+    optional string flag_name = 2;
+    optional string server_flag_value = 3;
+    optional string local_flag_value = 4;
+    optional string boot_flag_value = 5;
+    optional string default_flag_value = 6;
+    optional bool has_server_override = 7;
+    optional bool is_readwrite = 8;
+    optional bool has_local_override = 9;
   }
 
   message RemoveLocalOverrideReturnMessage {}
 
   message ResetStorageReturnMessage {}
+
+  message ListStorageReturnMessage {
+    repeated FlagQueryReturnMessage flags = 1;
+  }
 
   oneof msg {
     NewStorageReturnMessage new_storage_message = 1;
@@ -91,7 +109,8 @@ message StorageReturnMessage {
     FlagQueryReturnMessage flag_query_message = 3;
     RemoveLocalOverrideReturnMessage remove_local_override_message = 4;
     ResetStorageReturnMessage reset_storage_message = 5;
-    string error_message = 6;
+    ListStorageReturnMessage list_storage_message = 6;
+    string error_message = 7;
   };
 }
 

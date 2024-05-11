@@ -53,7 +53,8 @@ java_library {
     apex_available: [
         "//apex_available:anyapex",
         "//apex_available:platform",
-    ]
+    ],
+    jarjar_rules: "jarjar-rules.txt"
 }
 
 cc_test {
