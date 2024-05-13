@@ -27,7 +27,11 @@ using namespace android::aconfigd;
 using namespace android::base;
 
 static int aconfigd_init() {
-  auto init_result = InitializeInMemoryStorageRecords();
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName,
+                           kAvailableStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
     LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
                << init_result.error();
@@ -41,7 +45,7 @@ static int aconfigd_init() {
     return 1;
   }
 
-  auto plat_result = InitializePlatformStorage();
+  auto plat_result = aconfigd.InitializePlatformStorage();
   if (!plat_result.ok()) {
     LOG(ERROR) << "failed to initialize storage records: " << plat_result.error();
     return 1;
@@ -122,7 +126,11 @@ static Result<void> sendMessage(int client_fd, const StorageReturnMessages& msg)
 }
 
 static int aconfigd_start() {
-  auto init_result = InitializeInMemoryStorageRecords();
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName,
+                           kAvailableStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
     LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
                << init_result.error();
@@ -165,7 +173,7 @@ static int aconfigd_start() {
     auto return_messages = StorageReturnMessages();
     for (auto& request : requests->msgs()) {
       auto* return_msg = return_messages.add_msgs();
-      auto result = HandleSocketRequest(request, *return_msg);
+      auto result = aconfigd.HandleSocketRequest(request, *return_msg);
       if (!result.ok()) {
         auto* errmsg = return_msg->mutable_error_message();
         *errmsg = result.error().message();

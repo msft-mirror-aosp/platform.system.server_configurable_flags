@@ -20,10 +20,9 @@
 
 #include <android-base/result.h>
 
-#include <aconfigd.pb.h>
-#include <aconfig_storage/aconfig_storage_file.hpp>
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
+#include <aconfigd.pb.h>
 
 namespace android {
   namespace aconfigd {
