@@ -21,7 +21,6 @@
 #include <android-base/result.h>
 
 #include <aconfigd.pb.h>
-#include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfig_storage/aconfig_storage_file.hpp>
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
@@ -32,16 +31,18 @@ namespace android {
     /// In memory data structure for storage file locations for each container
     struct StorageRecord {
       int version;
-      std::string container;
-      std::string package_map;
-      std::string flag_map;
-      std::string persist_flag_val;
-      std::string persist_flag_info;
-      std::string local_overrides;
-      std::string boot_flag_val;
-      std::string boot_flag_info;
-      std::string default_flag_val;
-      uint64_t timestamp;
+      std::string container;            // container name
+      std::string package_map;          // package.map on container
+      std::string flag_map;             // flag.map on container
+      std::string flag_val;             // flag.val on container
+      std::string persist_package_map;  // persist package.map (backup copy for OTA)
+      std::string persist_flag_map;     // persist flag.map (backup copy for OTA)
+      std::string persist_flag_val;     // persist flag.val
+      std::string persist_flag_info;    // persist flag.info
+      std::string local_overrides;      // local flag overrides pb file
+      std::string boot_flag_val;        // boot flag.val
+      std::string boot_flag_info;       // boot flag.info
+      uint64_t timestamp;               // timestamp of flag.val on container
     };
 
     /// Mapped files for a container
@@ -57,7 +58,7 @@ namespace android {
                    const std::string& aconfig_dir = "/metadata/aconfig");
 
       /// constructor for existing new storage file set
-      StorageFiles(const aconfig_storage_metadata::storage_file_info& pb,
+      StorageFiles(const PersistStorageRecord& pb,
                    const std::string& aconfig_dir = "/metadata/aconfig");
 
       /// destructor
@@ -182,28 +183,20 @@ namespace android {
 
       private:
 
-      /// map a storage file
-      base::Result<aconfig_storage::MappedStorageFile*> MapStorageFile(
-          aconfig_storage::StorageFileType file_type);
-
-      /// map a mutable storage file
-      base::Result<aconfig_storage::MutableMappedStorageFile*> MapMutableStorageFile(
-          aconfig_storage::StorageFileType file_type);
-
       /// get package map
       base::Result<const aconfig_storage::MappedStorageFile*> GetPackageMap();
 
       /// get flag map
       base::Result<const aconfig_storage::MappedStorageFile*> GetFlagMap();
 
+      /// get default flag val
+      base::Result<const aconfig_storage::MappedStorageFile*> GetFlagVal();
+
       /// get boot flag val
       base::Result<const aconfig_storage::MappedStorageFile*> GetBootFlagVal();
 
       /// get boot flag info
       base::Result<const aconfig_storage::MappedStorageFile*> GetBootFlagInfo();
-
-      /// get default flag val
-      base::Result<const aconfig_storage::MappedStorageFile*> GetDefaultFlagVal();
 
       /// get persist flag val
       base::Result<const aconfig_storage::MutableMappedStorageFile*> GetPersistFlagVal();
@@ -231,14 +224,14 @@ namespace android {
       /// mapped flag map file
       std::unique_ptr<aconfig_storage::MappedStorageFile> flag_map_;
 
+      /// mapped default flag value file
+      std::unique_ptr<aconfig_storage::MappedStorageFile> flag_val_;
+
       /// mapped boot flag value file
       std::unique_ptr<aconfig_storage::MappedStorageFile> boot_flag_val_;
 
       /// mapped boot flag info file
       std::unique_ptr<aconfig_storage::MappedStorageFile> boot_flag_info_;
-
-      /// mapped default flag value file
-      std::unique_ptr<aconfig_storage::MappedStorageFile> default_flag_val_;
 
       /// mapped persist flag value file
       std::unique_ptr<aconfig_storage::MutableMappedStorageFile> persist_flag_val_;

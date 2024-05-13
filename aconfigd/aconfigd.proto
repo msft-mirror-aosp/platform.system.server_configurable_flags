@@ -127,3 +127,16 @@ message LocalFlagOverride {
 message LocalFlagOverrides {
   repeated LocalFlagOverride overrides = 1;
 }
+
+message PersistStorageRecord {
+  optional uint32 version = 1;
+  optional string container = 2;
+  optional string package_map = 3;
+  optional string flag_map = 4;
+  optional string flag_val = 5;
+  optional int64 timestamp = 6;
+}
+
+message PersistStorageRecords {
+  repeated PersistStorageRecord records = 1;
+};
