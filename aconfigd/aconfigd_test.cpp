@@ -27,6 +27,7 @@
 #include "aconfig_storage/aconfig_storage_write_api.hpp"
 #include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfigd.pb.h>
+#include "aconfigd_util.h"
 #include "aconfigd.h"
 
 using storage_records_pb = android::aconfig_storage_metadata::storage_files;
@@ -133,13 +134,15 @@ class AconfigdTest : public ::testing::Test {
   }
 
   void add_new_storage_message(StorageRequestMessages& messages,
+                               const std::string& package_map_file,
+                               const std::string& flag_map_file,
                                const std::string& flag_value_file) {
     auto* message = messages.add_msgs();
     auto* msg = message->mutable_new_storage_message();
     auto test_dir = base::GetExecutableDirectory();
     msg->set_container("mockup");
-    msg->set_package_map(test_dir + "/tests/package.map");
-    msg->set_flag_map(test_dir + "/tests/flag.map");
+    msg->set_package_map(package_map_file);
+    msg->set_flag_map(flag_map_file);
     msg->set_flag_value(flag_value_file);
   }
 
@@ -272,6 +275,14 @@ class AconfigdTest : public ::testing::Test {
   static void SetUpTestSuite() {
     // create two temp flag vals, the second one is used to mimic stoarge update
     auto test_dir = base::GetExecutableDirectory();
+    auto package_file = copy_to_temp_file(test_dir + "/tests/package.map");
+    ASSERT_TRUE(package_file.ok());
+    temp_package_map_ = *package_file;
+
+    auto flag_file = copy_to_temp_file(test_dir + "/tests/flag.map");
+    ASSERT_TRUE(flag_file.ok());
+    temp_flag_map_ = *flag_file;
+
     auto value_file = copy_to_temp_file(test_dir + "/tests/flag.val");
     ASSERT_TRUE(value_file.ok());
     temp_flag_val_ = *value_file;
@@ -283,17 +294,20 @@ class AconfigdTest : public ::testing::Test {
     another_temp_flag_val_ = *value_file;
   }
 
+  static std::string temp_package_map_;
+  static std::string temp_flag_map_;
   static std::string temp_flag_val_;
   static std::string another_temp_flag_val_;
-
 }; // class AconfigdTest
 
+std::string AconfigdTest::temp_package_map_;
+std::string AconfigdTest::temp_flag_map_;
 std::string AconfigdTest::temp_flag_val_;
 std::string AconfigdTest::another_temp_flag_val_;
 
 TEST_F(AconfigdTest, add_new_storage) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
 
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
@@ -315,9 +329,49 @@ TEST_F(AconfigdTest, add_new_storage) {
   ASSERT_TRUE(found);
 }
 
+TEST_F(AconfigdTest, mimic_storage_update_in_ota) {
+  auto request_msgs = StorageRequestMessages();
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
+  auto return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_new_storage_return_message(return_msgs->msgs(0));
+
+  // after OTA, the old RO package.map and RO flag.map are gone, now the updated
+  // package.map, flag.map is there. ensure we can still extract old flag information
+  // necessary to persist server and local flag override.
+  auto test_dir = base::GetExecutableDirectory();
+  auto copy = CopyFile(test_dir + "/tests/updated_package.map", temp_package_map_, 0444);
+  ASSERT_TRUE(copy.ok());
+  copy = CopyFile(test_dir + "/tests/updated_flag.map", temp_flag_map_, 0444);
+  ASSERT_TRUE(copy.ok());
+  copy = CopyFile(test_dir + "/tests/updated_flag.val", temp_flag_val_, 0444);
+  ASSERT_TRUE(copy.ok());
+
+  // send in another new storage request to force a storage update
+  request_msgs = StorageRequestMessages();
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
+  return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_new_storage_return_message(return_msgs->msgs(0));
+
+  // restore back to original file
+  copy = CopyFile(test_dir + "/tests/package.map", temp_package_map_, 0444);
+  ASSERT_TRUE(copy.ok());
+  copy = CopyFile(test_dir + "/tests/flag.map", temp_flag_map_, 0444);
+  ASSERT_TRUE(copy.ok());
+  copy = CopyFile(test_dir + "/tests/flag.val", temp_flag_val_, 0444);
+  ASSERT_TRUE(copy.ok());
+
+  request_msgs = StorageRequestMessages();
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
+  return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_new_storage_return_message(return_msgs->msgs(0));
+}
+
 TEST_F(AconfigdTest, flag_server_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
@@ -343,13 +397,13 @@ TEST_F(AconfigdTest, flag_server_override) {
 
 TEST_F(AconfigdTest, server_override_survive_update) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
   add_flag_query_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
-  add_new_storage_message(request_msgs, another_temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, another_temp_flag_val_);
   add_flag_query_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw");
   auto return_msgs = send_message(request_msgs);
@@ -368,7 +422,7 @@ TEST_F(AconfigdTest, server_override_survive_update) {
 
 TEST_F(AconfigdTest, flag_local_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
@@ -394,13 +448,13 @@ TEST_F(AconfigdTest, flag_local_override) {
 
 TEST_F(AconfigdTest, local_override_survive_update) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
   add_flag_query_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw");
-  add_new_storage_message(request_msgs, another_temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, another_temp_flag_val_);
   add_flag_query_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw");
   auto return_msgs = send_message(request_msgs);
@@ -419,7 +473,7 @@ TEST_F(AconfigdTest, local_override_survive_update) {
 
 TEST_F(AconfigdTest, single_local_override_remove) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
@@ -445,7 +499,7 @@ TEST_F(AconfigdTest, single_local_override_remove) {
 
 TEST_F(AconfigdTest, multiple_local_override_remove) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", true);
@@ -483,7 +537,7 @@ TEST_F(AconfigdTest, multiple_local_override_remove) {
 
 TEST_F(AconfigdTest, readonly_flag_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_ro", "false", false);
   add_flag_override_message(
@@ -497,7 +551,7 @@ TEST_F(AconfigdTest, readonly_flag_override) {
 
 TEST_F(AconfigdTest, nonexist_flag_override) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_flag_override_message(
       request_msgs, "unknown", "enabled_rw", "true", false);
   add_flag_override_message(
@@ -511,7 +565,7 @@ TEST_F(AconfigdTest, nonexist_flag_override) {
 
 TEST_F(AconfigdTest, nonexist_flag_query) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_flag_query_message(
       request_msgs, "unknown", "enabled_rw");
   add_flag_query_message(
@@ -525,7 +579,7 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
 
 TEST_F(AconfigdTest, storage_reset) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
@@ -553,7 +607,7 @@ TEST_F(AconfigdTest, storage_reset) {
 
 TEST_F(AconfigdTest, storage_list_package) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
@@ -585,7 +639,7 @@ TEST_F(AconfigdTest, storage_list_package) {
 
 TEST_F(AconfigdTest, storage_list_non_exist_package) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_list_package_storage_message(request_msgs, "unknown");
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
@@ -595,7 +649,7 @@ TEST_F(AconfigdTest, storage_list_non_exist_package) {
 
 TEST_F(AconfigdTest, storage_list_container) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
   add_flag_override_message(
       request_msgs, "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
@@ -642,7 +696,7 @@ TEST_F(AconfigdTest, storage_list_container) {
 
 TEST_F(AconfigdTest, storage_list_non_exist_container) {
   auto request_msgs = StorageRequestMessages();
-  add_new_storage_message(request_msgs, temp_flag_val_);
+  add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_list_container_storage_message(request_msgs, "unknown");
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();

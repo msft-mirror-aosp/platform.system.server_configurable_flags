@@ -60,7 +60,7 @@ namespace android {
 
   /// restore storage files object from a storage record pb entry
   base::Result<void> StorageFilesManager::RestoreStorageFiles(
-      const aconfig_storage_metadata::storage_file_info& pb) {
+      const PersistStorageRecord& pb) {
     if (all_storage_files_.count(pb.container())) {
       return Error() << "Storage file object for " << pb.container()
                      << " already exists";
