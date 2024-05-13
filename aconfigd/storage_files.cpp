@@ -33,8 +33,8 @@ namespace android {
                              const std::string& package_map,
                              const std::string& flag_map,
                              const std::string& flag_val,
-                             base::Result<void>& status,
-                             const std::string& aconfig_dir)
+                             const std::string& root_dir,
+                             base::Result<void>& status)
       : container_(container)
       , storage_record_()
       , package_map_(nullptr)
@@ -62,19 +62,19 @@ namespace android {
     storage_record_.flag_map = flag_map;
     storage_record_.flag_val = flag_val;
     storage_record_.persist_package_map =
-        aconfig_dir + "/flags/" + container + ".package.map";
+        root_dir + "/flags/" + container + ".package.map";
     storage_record_.persist_flag_map =
-        aconfig_dir + "/flags/" + container + ".flag.map";
+        root_dir + "/flags/" + container + ".flag.map";
     storage_record_.persist_flag_val =
-        aconfig_dir + "/flags/" + container + ".val";
+        root_dir + "/flags/" + container + ".val";
     storage_record_.persist_flag_info =
-        aconfig_dir + "/flags/" + container + ".info";
+        root_dir + "/flags/" + container + ".info";
     storage_record_.local_overrides =
-        aconfig_dir + "/flags/" + container + "_local_overrides.pb";
+        root_dir + "/flags/" + container + "_local_overrides.pb";
     storage_record_.boot_flag_val =
-        aconfig_dir + "/boot/" + container + ".val";
+        root_dir + "/boot/" + container + ".val";
     storage_record_.boot_flag_info =
-        aconfig_dir + "/boot/" + container + ".info";
+        root_dir + "/boot/" + container + ".info";
     storage_record_.timestamp = *timestamp;
 
     // copy package map file
@@ -113,7 +113,7 @@ namespace android {
 
   /// constructor for existing new storage file set
   StorageFiles::StorageFiles(const PersistStorageRecord& pb,
-                             const std::string& aconfig_dir)
+                             const std::string& root_dir)
       : container_(pb.container())
       , storage_record_()
       , package_map_(nullptr)
@@ -129,19 +129,19 @@ namespace android {
     storage_record_.flag_map = pb.flag_map();
     storage_record_.flag_val = pb.flag_val();
     storage_record_.persist_package_map =
-        aconfig_dir + "/flags/" + pb.container() + ".package.map";
+        root_dir + "/flags/" + pb.container() + ".package.map";
     storage_record_.persist_flag_map =
-        aconfig_dir + "/flags/" + pb.container() + ".flag.map";
+        root_dir + "/flags/" + pb.container() + ".flag.map";
     storage_record_.persist_flag_val =
-        aconfig_dir + "/flags/" + pb.container() + ".val";
+        root_dir + "/flags/" + pb.container() + ".val";
     storage_record_.persist_flag_info =
-        aconfig_dir + "/flags/" + pb.container() + ".info";
+        root_dir + "/flags/" + pb.container() + ".info";
     storage_record_.local_overrides =
-        aconfig_dir + "/flags/" + pb.container() + "_local_overrides.pb";
+        root_dir + "/flags/" + pb.container() + "_local_overrides.pb";
     storage_record_.boot_flag_val =
-        aconfig_dir + "/boot/" + pb.container() + ".val";
+        root_dir + "/boot/" + pb.container() + ".val";
     storage_record_.boot_flag_info =
-        aconfig_dir + "/boot/" + pb.container() + ".info";
+        root_dir + "/boot/" + pb.container() + ".info";
     storage_record_.timestamp = pb.timestamp();
   }
 
@@ -344,6 +344,12 @@ namespace android {
     }
 
     return {};
+  }
+
+  /// has boot copy
+  bool StorageFiles::HasBootCopy() {
+    return FileExists(storage_record_.boot_flag_val)
+        && FileExists(storage_record_.boot_flag_info);
   }
 
   /// Find flag value type and global index
@@ -795,7 +801,7 @@ namespace android {
   }
 
   /// remove all storage files
-  Result<void> StorageFiles::RemoveAllPersistFilesButLocalOverrideFile() {
+  Result<void> StorageFiles::RemoveAllPersistFiles() {
     package_map_.reset(nullptr);
     flag_map_.reset(nullptr);
     flag_val_.reset(nullptr);
@@ -819,13 +825,6 @@ namespace android {
       return base::ErrnoError() << "unlink() failed for "
                                 << storage_record_.persist_flag_info;
     }
-    return {};
-  }
-
-  /// remove all storage files
-  Result<void> StorageFiles::RemoveAllPersistFiles() {
-    auto remove = RemoveAllPersistFilesButLocalOverrideFile();
-    RETURN_IF_ERROR(remove, "");
     if (unlink(storage_record_.local_overrides.c_str()) == -1) {
       return base::ErrnoError() << "unlink() failed for " << storage_record_.local_overrides;
     }
@@ -870,6 +869,47 @@ namespace android {
     };
 
     return apply_result;
+  }
+
+  /// list a flag
+  base::Result<StorageFiles::FlagSnapshot> StorageFiles::ListFlag(
+      const std::string& package,
+      const std::string& flag) {
+
+    auto context = GetPackageFlagContext(package, flag);
+    RETURN_IF_ERROR(context, "Failed to find package flag context");
+
+    if (!context->flag_exists) {
+      return base::Error() << "Flag " << package << "/" << flag << " does not exist";
+    }
+
+    auto attribute = GetFlagAttribute(*context);
+    RETURN_IF_ERROR(context, "Failed to get flag attribute");
+
+    auto server_value = GetServerFlagValue(*context);
+    RETURN_IF_ERROR(server_value, "Failed to get server flag value");
+
+    auto local_value = GetLocalFlagValue(*context);
+    RETURN_IF_ERROR(local_value, "Failed to get local flag value");
+
+    auto boot_value = GetBootFlagValue(*context);
+    RETURN_IF_ERROR(boot_value, "Failed to get boot flag value");
+
+    auto default_value = GetDefaultFlagValue(*context);
+    RETURN_IF_ERROR(default_value, "Failed to get default flag value");
+
+    auto snapshot = FlagSnapshot();
+    snapshot.package_name = package;
+    snapshot.flag_name = flag;
+    snapshot.default_flag_value = *default_value;
+    snapshot.boot_flag_value = *boot_value;
+    snapshot.server_flag_value = *server_value;
+    snapshot.local_flag_value = *local_value;
+    snapshot.is_readwrite = *attribute & FlagInfoBit::IsReadWrite;
+    snapshot.has_server_override = *attribute & FlagInfoBit::HasServerOverride;
+    snapshot.has_local_override = *attribute & FlagInfoBit::HasLocalOverride;
+
+    return snapshot;
   }
 
   /// list flags

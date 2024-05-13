@@ -574,7 +574,7 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
   verify_error_message(return_msgs->msgs(1), "Failed to find owning container");
-  verify_error_message(return_msgs->msgs(2), "Flag does not exist");
+  verify_error_message(return_msgs->msgs(2), "unknown does not exist");
 }
 
 TEST_F(AconfigdTest, storage_reset) {
