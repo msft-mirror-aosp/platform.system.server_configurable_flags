@@ -34,14 +34,6 @@ static int aconfigd_init() {
     return 1;
   }
 
-  // TODO: remove this check once b/330134027 is fixed. This is temporary as android
-  // on chrome os vm does not have /metadata partition at the moment.
-  DIR* dir = opendir("/metadata/aconfig");
-  if (!dir) {
-    return {};
-  }
-  closedir(dir);
-
   // clear boot dir to start fresh at each boot
   auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
   if (!remove_result.ok()) {
@@ -173,7 +165,14 @@ static int aconfigd_start() {
     auto return_messages = StorageReturnMessages();
     for (auto& request : requests->msgs()) {
       auto* return_msg = return_messages.add_msgs();
-      HandleSocketRequest(request, *return_msg);
+      auto result = HandleSocketRequest(request, *return_msg);
+      if (!result.ok()) {
+        auto* errmsg = return_msg->mutable_error_message();
+        *errmsg = result.error().message();
+        LOG(ERROR) << "Failed to handle socket request: " << *errmsg;
+      } else {
+        LOG(INFO) << "Successfully handled socket request";
+      }
     }
 
     auto result = sendMessage(client_fd.get(), return_messages);
@@ -187,7 +186,7 @@ static int aconfigd_start() {
 
 int main(int argc, char** argv) {
   if (!com::android::aconfig_new_storage::enable_aconfig_storage_daemon()) {
-    //return 0;
+    return 0;
   }
 
   android::base::InitLogging(argv, &android::base::KernelLogger);

@@ -26,6 +26,9 @@ namespace android {
     /// Aconfigd socket name
     static constexpr char kAconfigdSocket[] = "aconfigd";
 
+    /// Aconfigd root dir
+    static constexpr char kAconfigdRootDir[] = "/metadata/aconfig";
+
     /// Persistent storage records pb file full path
     static constexpr char kPersistentStorageRecordsFileName[] =
         "/metadata/aconfig/persist_storage_file_records.pb";
@@ -38,8 +41,8 @@ namespace android {
     base::Result<void> InitializePlatformStorage();
 
     /// Handle incoming messages to aconfigd socket
-    void HandleSocketRequest(const StorageRequestMessage& message,
-                             StorageReturnMessage& return_message);
+    base::Result<void> HandleSocketRequest(const StorageRequestMessage& message,
+                                           StorageReturnMessage& return_message);
 
     /// Initialize in memory aconfig storage records
     base::Result<void> InitializeInMemoryStorageRecords();
