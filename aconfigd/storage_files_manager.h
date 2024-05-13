@@ -21,6 +21,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include <aconfigd.pb.h>
 #include "storage_files.h"
 
 namespace android {
@@ -53,8 +54,7 @@ namespace android {
                                             const std::string& flag_val);
 
       /// restore storage files object from a storage record pb entry
-      base::Result<void> RestoreStorageFiles(
-          const aconfig_storage_metadata::storage_file_info& pb);
+      base::Result<void> RestoreStorageFiles(const PersistStorageRecord& pb);
 
       /// get container name given flag package name
       base::Result<std::string> GetContainer(const std::string& package);
