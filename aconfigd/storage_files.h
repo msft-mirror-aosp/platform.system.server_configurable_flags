@@ -20,10 +20,9 @@
 
 #include <android-base/result.h>
 
-#include <aconfigd.pb.h>
-#include <aconfig_storage/aconfig_storage_file.hpp>
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
+#include <aconfigd.pb.h>
 
 namespace android {
   namespace aconfigd {
@@ -54,12 +53,12 @@ namespace android {
                    const std::string& package_map,
                    const std::string& flag_map,
                    const std::string& flag_val,
-                   base::Result<void>& status,
-                   const std::string& aconfig_dir = "/metadata/aconfig");
+                   const std::string& root_dir,
+                   base::Result<void>& status);
 
       /// constructor for existing new storage file set
       StorageFiles(const PersistStorageRecord& pb,
-                   const std::string& aconfig_dir = "/metadata/aconfig");
+                   const std::string& root_dir);
 
       /// destructor
       ~StorageFiles() = default;
@@ -76,6 +75,9 @@ namespace android {
       const StorageRecord& GetStorageRecord() {
         return storage_record_;
       }
+
+      /// has boot copy
+      bool HasBootCopy();
 
       /// return result for package and flag context
       struct PackageFlagContext {
@@ -155,9 +157,6 @@ namespace android {
       /// get all current server override
       base::Result<std::vector<ServerOverride>> GetServerFlagValues();
 
-      /// remove all persist storage files but local storage files
-      base::Result<void> RemoveAllPersistFilesButLocalOverrideFile();
-
       /// remove all persist storage files
       base::Result<void> RemoveAllPersistFiles();
 
@@ -176,6 +175,10 @@ namespace android {
         bool has_server_override;
         bool has_local_override;
       };
+
+      /// list a flag
+      base::Result<StorageFiles::FlagSnapshot> ListFlag(const std::string& package,
+                                                        const std::string& flag);
 
       /// list flags
       base::Result<std::vector<FlagSnapshot>> ListFlags(

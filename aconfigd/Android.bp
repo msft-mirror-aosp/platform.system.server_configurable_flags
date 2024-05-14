@@ -58,9 +58,10 @@ java_library {
 }
 
 cc_test {
-    name: "aconfigd_test",
+    name: "aconfigd_socket_test",
+    team: "trendy_team_android_core_experiments",
     srcs: [
-        "aconfigd_test.cpp",
+        "aconfigd_socket_test.cpp",
         "aconfigd_util.cpp",
         "aconfigd.proto",
     ],

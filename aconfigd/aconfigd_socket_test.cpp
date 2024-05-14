@@ -36,7 +36,7 @@ using storage_record_pb = android::aconfig_storage_metadata::storage_file_info;
 namespace android {
 namespace aconfigd {
 
-class AconfigdTest : public ::testing::Test {
+class AconfigdSocketTest : public ::testing::Test {
  protected:
   base::Result<base::unique_fd> connect_aconfigd_socket() {
     auto sock_fd = base::unique_fd(socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0));
@@ -298,14 +298,14 @@ class AconfigdTest : public ::testing::Test {
   static std::string temp_flag_map_;
   static std::string temp_flag_val_;
   static std::string another_temp_flag_val_;
-}; // class AconfigdTest
+}; // class AconfigdSocketTest
 
-std::string AconfigdTest::temp_package_map_;
-std::string AconfigdTest::temp_flag_map_;
-std::string AconfigdTest::temp_flag_val_;
-std::string AconfigdTest::another_temp_flag_val_;
+std::string AconfigdSocketTest::temp_package_map_;
+std::string AconfigdSocketTest::temp_flag_map_;
+std::string AconfigdSocketTest::temp_flag_val_;
+std::string AconfigdSocketTest::another_temp_flag_val_;
 
-TEST_F(AconfigdTest, add_new_storage) {
+TEST_F(AconfigdSocketTest, add_new_storage) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
 
@@ -329,7 +329,7 @@ TEST_F(AconfigdTest, add_new_storage) {
   ASSERT_TRUE(found);
 }
 
-TEST_F(AconfigdTest, mimic_storage_update_in_ota) {
+TEST_F(AconfigdSocketTest, mimic_storage_update_in_ota) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   auto return_msgs = send_message(request_msgs);
@@ -369,7 +369,7 @@ TEST_F(AconfigdTest, mimic_storage_update_in_ota) {
   verify_new_storage_return_message(return_msgs->msgs(0));
 }
 
-TEST_F(AconfigdTest, flag_server_override) {
+TEST_F(AconfigdSocketTest, flag_server_override) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -395,7 +395,7 @@ TEST_F(AconfigdTest, flag_server_override) {
       "true", "", "true", "true", true, true, false);
 }
 
-TEST_F(AconfigdTest, server_override_survive_update) {
+TEST_F(AconfigdSocketTest, server_override_survive_update) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -420,7 +420,7 @@ TEST_F(AconfigdTest, server_override_survive_update) {
       "false", "", "true", "true", true, true, false);
 }
 
-TEST_F(AconfigdTest, flag_local_override) {
+TEST_F(AconfigdSocketTest, flag_local_override) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -446,7 +446,7 @@ TEST_F(AconfigdTest, flag_local_override) {
       "", "false", "false", "false", true, false, true);
 }
 
-TEST_F(AconfigdTest, local_override_survive_update) {
+TEST_F(AconfigdSocketTest, local_override_survive_update) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -471,7 +471,7 @@ TEST_F(AconfigdTest, local_override_survive_update) {
       "", "true", "false", "false", true, false, true);
 }
 
-TEST_F(AconfigdTest, single_local_override_remove) {
+TEST_F(AconfigdSocketTest, single_local_override_remove) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -497,7 +497,7 @@ TEST_F(AconfigdTest, single_local_override_remove) {
       "", "", "false", "false", true, false, false);
 }
 
-TEST_F(AconfigdTest, multiple_local_override_remove) {
+TEST_F(AconfigdSocketTest, multiple_local_override_remove) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -535,7 +535,7 @@ TEST_F(AconfigdTest, multiple_local_override_remove) {
       "", "", "false", "false", true, false, false);
 }
 
-TEST_F(AconfigdTest, readonly_flag_override) {
+TEST_F(AconfigdSocketTest, readonly_flag_override) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_flag_override_message(
@@ -549,7 +549,7 @@ TEST_F(AconfigdTest, readonly_flag_override) {
   verify_error_message(return_msgs->msgs(2), "Cannot update read only flag");
 }
 
-TEST_F(AconfigdTest, nonexist_flag_override) {
+TEST_F(AconfigdSocketTest, nonexist_flag_override) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_flag_override_message(
@@ -563,7 +563,7 @@ TEST_F(AconfigdTest, nonexist_flag_override) {
   verify_error_message(return_msgs->msgs(2), "Flag does not exist");
 }
 
-TEST_F(AconfigdTest, nonexist_flag_query) {
+TEST_F(AconfigdSocketTest, nonexist_flag_query) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_flag_query_message(
@@ -574,10 +574,10 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
   verify_error_message(return_msgs->msgs(1), "Failed to find owning container");
-  verify_error_message(return_msgs->msgs(2), "Flag does not exist");
+  verify_error_message(return_msgs->msgs(2), "unknown does not exist");
 }
 
-TEST_F(AconfigdTest, storage_reset) {
+TEST_F(AconfigdSocketTest, storage_reset) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -605,7 +605,7 @@ TEST_F(AconfigdTest, storage_reset) {
       "", "", "false", "false", true, false, false);
 }
 
-TEST_F(AconfigdTest, storage_list_package) {
+TEST_F(AconfigdSocketTest, storage_list_package) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -637,7 +637,7 @@ TEST_F(AconfigdTest, storage_list_package) {
       "", "false", "true", "true", true, false, true);
 }
 
-TEST_F(AconfigdTest, storage_list_non_exist_package) {
+TEST_F(AconfigdSocketTest, storage_list_non_exist_package) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_list_package_storage_message(request_msgs, "unknown");
@@ -647,7 +647,7 @@ TEST_F(AconfigdTest, storage_list_non_exist_package) {
   verify_error_message(return_msgs->msgs(1), "container not found");
 }
 
-TEST_F(AconfigdTest, storage_list_container) {
+TEST_F(AconfigdSocketTest, storage_list_container) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_reset_storage_message(request_msgs);
@@ -694,7 +694,7 @@ TEST_F(AconfigdTest, storage_list_container) {
       "", "", "true", "true", true, false, false);
 }
 
-TEST_F(AconfigdTest, storage_list_non_exist_container) {
+TEST_F(AconfigdSocketTest, storage_list_non_exist_container) {
   auto request_msgs = StorageRequestMessages();
   add_new_storage_message(request_msgs, temp_package_map_, temp_flag_map_, temp_flag_val_);
   add_list_container_storage_message(request_msgs, "unknown");
