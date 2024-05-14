@@ -37,36 +37,175 @@ namespace android {
   }
 
   /// create mapped files for a container
-  base::Result<void> StorageFilesManager::AddNewStorageFiles(const std::string& container,
-                                                             const std::string& package_map,
-                                                             const std::string& flag_map,
-                                                             const std::string& flag_val) {
+  base::Result<StorageFiles*> StorageFilesManager::AddNewStorageFiles(
+      const std::string& container,
+      const std::string& package_map,
+      const std::string& flag_map,
+      const std::string& flag_val) {
     if (all_storage_files_.count(container)) {
       return Error() << "Storage file object for " << container << " already exists";
     }
 
     auto result = Result<void>({});
     auto storage_files = std::make_unique<StorageFiles>(
-          container, package_map, flag_map, flag_val, result);
+          container, package_map, flag_map, flag_val, root_dir_, result);
 
     if (!result.ok()) {
       return Error() << "Failed to create storage file object for " << container
                      << ": " << result.error();
     }
 
+    auto storage_files_ptr = storage_files.get();
     all_storage_files_[container].reset(storage_files.release());
-    return {};
+    return storage_files_ptr;
   }
 
   /// restore storage files object from a storage record pb entry
   base::Result<void> StorageFilesManager::RestoreStorageFiles(
-      const aconfig_storage_metadata::storage_file_info& pb) {
+      const PersistStorageRecord& pb) {
     if (all_storage_files_.count(pb.container())) {
       return Error() << "Storage file object for " << pb.container()
                      << " already exists";
     }
 
-    all_storage_files_[pb.container()] = std::make_unique<StorageFiles>(pb);
+    all_storage_files_[pb.container()] = std::make_unique<StorageFiles>(pb, root_dir_);
+    return {};
+  }
+
+  /// update existing storage files object with new storage file set
+  base::Result<void> StorageFilesManager::UpdateStorageFiles(
+      const std::string& container,
+      const std::string& package_map,
+      const std::string& flag_map,
+      const std::string& flag_val) {
+    if (!all_storage_files_.count(container)) {
+      return Error() << "Failed to update storage files object for " << container
+                     << ", it does not exist";
+    }
+
+    // backup server and local override
+    auto storage_files = GetStorageFiles(container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+    auto server_overrides = (**storage_files).GetServerFlagValues();
+    RETURN_IF_ERROR(server_overrides, "Failed to get existing server overrides");
+
+    auto pb_file = (**storage_files).GetStorageRecord().local_overrides;
+    auto local_overrides = ReadPbFromFile<LocalFlagOverrides>(pb_file);
+    RETURN_IF_ERROR(local_overrides, "Failed to read local overrides from " + pb_file);
+
+    // clean up existing storage files object and recreate
+    (**storage_files).RemoveAllPersistFiles();
+    all_storage_files_.erase(container);
+    storage_files = AddNewStorageFiles(container, package_map, flag_map, flag_val);
+    RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
+
+    // reapply local overrides
+    auto updated_local_overrides = LocalFlagOverrides();
+    for (const auto& entry : local_overrides->overrides()) {
+      auto has_flag = (**storage_files).HasFlag(entry.package_name(), entry.flag_name());
+      RETURN_IF_ERROR(has_flag, "Failed to check if has flag for " + entry.package_name()
+                      + "/" + entry.flag_name());
+      if (*has_flag) {
+        auto context = (**storage_files).GetPackageFlagContext(
+            entry.package_name(), entry.flag_name());
+        RETURN_IF_ERROR(context, "Failed to find package flag context for " +
+                        entry.package_name() + "/" + entry.flag_name());
+
+        auto update = (**storage_files).SetHasLocalOverride(*context, true);
+        RETURN_IF_ERROR(update, "Failed to set flag has local override");
+
+        auto* new_override = updated_local_overrides.add_overrides();
+        new_override->set_package_name(entry.package_name());
+        new_override->set_flag_name(entry.flag_name());
+        new_override->set_flag_value(entry.flag_value());
+      }
+    }
+    auto result = WritePbToFile<LocalFlagOverrides>(updated_local_overrides, pb_file);
+
+    // reapply server overrides
+    for (const auto& entry : *server_overrides) {
+      auto has_flag = (**storage_files).HasFlag(entry.package_name, entry.flag_name);
+      RETURN_IF_ERROR(has_flag, "Failed to check if has flag for " + entry.package_name
+                      + "/" + entry.flag_name);
+      if (*has_flag) {
+        auto context = (**storage_files).GetPackageFlagContext(
+            entry.package_name, entry.flag_name);
+        RETURN_IF_ERROR(context, "Failed to find package flag context for " +
+                        entry.package_name + "/" + entry.flag_name);
+
+        auto update = (**storage_files).SetServerFlagValue(*context, entry.flag_value);
+        RETURN_IF_ERROR(update, "Failed to set server flag value");
+      }
+    }
+
+    return {};
+  }
+
+  /// add or update storage file set for a container
+  Result<bool> StorageFilesManager::AddOrUpdateStorageFiles(
+      const std::string& container,
+      const std::string& package_map,
+      const std::string& flag_map,
+      const std::string& flag_val) {
+    bool new_container = !HasContainer(container);
+    bool update_existing_container = false;
+    if (!new_container) {
+      auto timestamp = GetFileTimeStamp(flag_val);
+      RETURN_IF_ERROR(timestamp, "Failed to get timestamp of " + flag_val);
+      auto storage_files = GetStorageFiles(container);
+      RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+      if ((**storage_files).GetStorageRecord().timestamp != *timestamp) {
+        update_existing_container = true;
+      }
+    }
+
+    // early return if no update is needed
+    if (!(new_container || update_existing_container)) {
+      return false;
+    }
+
+    if (new_container) {
+      auto storage_files = AddNewStorageFiles(
+          container, package_map, flag_map, flag_val);
+      RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
+    } else {
+      auto storage_files = UpdateStorageFiles(
+          container, package_map, flag_map, flag_val);
+      RETURN_IF_ERROR(storage_files, "Failed to update storage object for " + container);
+    }
+
+    return true;
+  }
+
+  /// create boot copy
+  base::Result<void> StorageFilesManager::CreateStorageBootCopy(
+      const std::string& container) {
+    if (!HasContainer(container)) {
+      return Error() << "Cannot create boot copy without persist copy for " << container;
+    }
+    auto storage_files = GetStorageFiles(container);
+    auto copy_result = (**storage_files).CreateBootStorageFiles();
+    RETURN_IF_ERROR(copy_result, "Failed to create boot copies for " + container);
+    return {};
+  }
+
+  /// reset all storage
+  base::Result<void> StorageFilesManager::ResetAllStorage() {
+    for (const auto& container : GetAllContainers()) {
+      auto storage_files = GetStorageFiles(container);
+      RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+      bool available = (**storage_files).HasBootCopy();
+      StorageRecord record = (**storage_files).GetStorageRecord();
+
+      (**storage_files).RemoveAllPersistFiles();
+      all_storage_files_.erase(container);
+
+      if (available) {
+        auto storage_files = AddNewStorageFiles(
+            container, record.package_map, record.flag_map, record.flag_val);
+        RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
+      }
+    }
     return {};
   }
 
@@ -77,27 +216,13 @@ namespace android {
       return package_to_container_[package];
     }
 
-    // check available storage records
-    auto records_pb = ReadPbFromFile<aconfig_storage_metadata::storage_files>(
-        kAvailableStorageRecordsFileName);
-    if (!records_pb.ok()) {
-      return base::Error() << "Unable to read available storage records: "
-                           << records_pb.error();
-    }
-
-    for (auto& entry : records_pb->files()) {
-      auto storage_files = GetStorageFiles(entry.container());
-      if (!storage_files.ok()) {
-        return base::Error() << storage_files.error();
-      }
-      auto has_flag = (**storage_files).HasPackage(package);
-      if (!has_flag.ok()) {
-        return base::Error() << has_flag.error();
-      }
+    for (const auto& [container, storage_files] : all_storage_files_) {
+      auto has_flag = storage_files->HasPackage(package);
+      RETURN_IF_ERROR(has_flag, "Failed to check if has flag");
 
       if (*has_flag) {
-        package_to_container_[package] = entry.container();
-        return entry.container();
+        package_to_container_[package] = container;
+        return container;
       }
     }
 
@@ -120,6 +245,160 @@ namespace android {
       containers.push_back(item.first);
     }
     return containers;
+  }
+
+  /// write to persist storage records pb file
+  base::Result<void> StorageFilesManager::WritePersistStorageRecordsToFile(
+      const std::string& file_name) {
+    auto records_pb = PersistStorageRecords();
+    for (const auto& [container, storage_files] : all_storage_files_) {
+      const auto& record = storage_files->GetStorageRecord();
+      auto* record_pb = records_pb.add_records();
+      record_pb->set_version(record.version);
+      record_pb->set_container(record.container);
+      record_pb->set_package_map(record.package_map);
+      record_pb->set_flag_map(record.flag_map);
+      record_pb->set_flag_val(record.flag_val);
+      record_pb->set_timestamp(record.timestamp);
+    }
+    return WritePbToFile<PersistStorageRecords>(records_pb, file_name);
+  }
+
+  /// write to available storage records pb file
+  base::Result<void> StorageFilesManager::WriteAvailableStorageRecordsToFile(
+      const std::string& file_name) {
+    auto records_pb = aconfig_storage_metadata::storage_files();
+    for (const auto& [container, storage_files] : all_storage_files_) {
+      if (!storage_files->HasBootCopy()) {
+        continue;
+      }
+      const auto& record = storage_files->GetStorageRecord();
+      auto* record_pb = records_pb.add_files();
+      record_pb->set_version(record.version);
+      record_pb->set_container(record.container);
+      record_pb->set_package_map(record.package_map);
+      record_pb->set_flag_map(record.flag_map);
+      record_pb->set_flag_val(record.boot_flag_val);
+      record_pb->set_flag_info(record.boot_flag_info);
+      record_pb->set_timestamp(record.timestamp);
+    }
+    return WritePbToFile<aconfig_storage_metadata::storage_files>(
+        records_pb, file_name);
+  }
+
+  /// apply flag override
+  base::Result<void> StorageFilesManager::UpdateFlagValue(
+      const std::string& package_name,
+      const std::string& flag_name,
+      const std::string& flag_value,
+      bool is_local_override) {
+
+    auto container = GetContainer(package_name);
+    RETURN_IF_ERROR(container, "Failed to find owning container");
+
+    auto storage_files = GetStorageFiles(*container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    auto context = (**storage_files).GetPackageFlagContext(package_name, flag_name);
+    RETURN_IF_ERROR(context, "Failed to find package flag context");
+
+    if (is_local_override) {
+      auto update = (**storage_files).SetLocalFlagValue(*context, flag_value);
+      RETURN_IF_ERROR(update, "Failed to set local flag override");
+    } else {
+      auto update =(**storage_files).SetServerFlagValue(*context, flag_value);
+      RETURN_IF_ERROR(update, "Failed to set server flag value");
+    }
+
+    return {};
+  }
+
+  /// remove all local overrides
+  base::Result<void> StorageFilesManager::RemoveAllLocalOverrides() {
+    for (const auto& [container, storage_files] : all_storage_files_) {
+      auto update = storage_files->RemoveAllLocalFlagValue();
+      RETURN_IF_ERROR(update, "Failed to remove local overrides for " + container);
+    }
+    return {};
+  }
+
+  /// remove a local override
+  Result<void> StorageFilesManager::RemoveFlagLocalOverride(
+      const std::string& package,
+      const std::string& flag) {
+    auto container = GetContainer(package);
+    RETURN_IF_ERROR(container, "Failed to find owning container");
+
+    auto storage_files = GetStorageFiles(*container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    auto context = (**storage_files).GetPackageFlagContext(package, flag);
+    RETURN_IF_ERROR(context, "Failed to find package flag context");
+
+    auto removed = (**storage_files).RemoveLocalFlagValue(*context);
+    RETURN_IF_ERROR(removed, "Failed to remove local override");
+
+    return {};
+  }
+
+  /// list a flag
+  base::Result<StorageFiles::FlagSnapshot> StorageFilesManager::ListFlag(
+      const std::string& package,
+      const std::string& flag) {
+    auto container = GetContainer(package);
+    RETURN_IF_ERROR(container, "Failed to find owning container");
+    auto storage_files = GetStorageFiles(*container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    if ((**storage_files).HasBootCopy()) {
+      return (**storage_files).ListFlag(package, flag);
+    } else{
+      return base::Error() << "Container " << *container << " is currently unavailable";
+    }
+  }
+
+  /// list flags in a package
+  base::Result<std::vector<StorageFiles::FlagSnapshot>>
+      StorageFilesManager::ListFlagsInPackage(const std::string& package) {
+    auto container = GetContainer(package);
+    RETURN_IF_ERROR(container, "Failed to find owning container for " + package);
+    auto storage_files = GetStorageFiles(*container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    if ((**storage_files).HasBootCopy()) {
+      return (**storage_files).ListFlags(package);
+    } else{
+      return base::Error() << "Container " << *container << " is currently unavailable";
+    }
+  }
+
+  /// list flags in a container
+  base::Result<std::vector<StorageFiles::FlagSnapshot>>
+      StorageFilesManager::ListFlagsInContainer(const std::string& container) {
+    auto storage_files = GetStorageFiles(container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    if ((**storage_files).HasBootCopy()) {
+      return (**storage_files).ListFlags();
+    } else {
+      return base::Error() << "Container " << container << " is currently unavailable";
+    }
+  }
+
+  /// list all available flags
+  base::Result<std::vector<StorageFiles::FlagSnapshot>>
+      StorageFilesManager::ListAllAvailableFlags() {
+    auto total_flags = std::vector<StorageFiles::FlagSnapshot>();
+    for (const auto& [container, storage_files] : all_storage_files_) {
+      if (!storage_files->HasBootCopy()) {
+        continue;
+      }
+      auto flags = storage_files->ListFlags();
+      RETURN_IF_ERROR(flags, "Failed to list flags in " + container);
+      total_flags.reserve(total_flags.size() + flags->size());
+      total_flags.insert(total_flags.end(), flags->begin(), flags->end());
+    }
+    return total_flags;
   }
 
   } // namespace aconfigd

@@ -27,20 +27,16 @@ using namespace android::aconfigd;
 using namespace android::base;
 
 static int aconfigd_init() {
-  auto init_result = InitializeInMemoryStorageRecords();
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName,
+                           kAvailableStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
     LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
                << init_result.error();
     return 1;
   }
-
-  // TODO: remove this check once b/330134027 is fixed. This is temporary as android
-  // on chrome os vm does not have /metadata partition at the moment.
-  DIR* dir = opendir("/metadata/aconfig");
-  if (!dir) {
-    return {};
-  }
-  closedir(dir);
 
   // clear boot dir to start fresh at each boot
   auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
@@ -49,7 +45,7 @@ static int aconfigd_init() {
     return 1;
   }
 
-  auto plat_result = InitializePlatformStorage();
+  auto plat_result = aconfigd.InitializePlatformStorage();
   if (!plat_result.ok()) {
     LOG(ERROR) << "failed to initialize storage records: " << plat_result.error();
     return 1;
@@ -61,26 +57,33 @@ static int aconfigd_init() {
 /// receive storage requests from socket
 static Result<StorageRequestMessages> receiveMessage(int client_fd) {
   unsigned char size_buffer[4] = {};
-  auto num_bytes = TEMP_FAILURE_RETRY(
-      recv(client_fd, size_buffer, 4, 0));
-  if (num_bytes < 0) {
-    return ErrnoError() << "failed to read number of bytes from aconfigd socket";
-  } else if (num_bytes != 4) {
-    return Error() << "expecting 4 bytes from aconfigd socket, received " << num_bytes;
+  int size_bytes_received = 0;
+  while (size_bytes_received < 4) {
+    auto chunk_bytes =
+        TEMP_FAILURE_RETRY(recv(client_fd, size_buffer + size_bytes_received,
+                                4 - size_bytes_received, 0));
+    if (chunk_bytes < 0) {
+      return ErrnoError() << "received error polling for message size";
+    }
+    size_bytes_received += chunk_bytes;
   }
+
   uint32_t payload_size = uint32_t(
       size_buffer[0]<<24 | size_buffer[1]<<16 | size_buffer[2]<<8 | size_buffer[3]);
 
   char payload_buffer[payload_size];
-  num_bytes = TEMP_FAILURE_RETRY(
-      recv(client_fd, payload_buffer, payload_size, 0));
-  if (num_bytes < 0) {
-    return ErrnoError() << "failed to read payload from aconfigd socket";
-  } else if (num_bytes != payload_size) {
-    return Error() << "expecting " << payload_size
-                   << " bytes of payload from aconfigd socket, received " << num_bytes;
+  int payload_bytes_received = 0;
+  while (payload_bytes_received < payload_size) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        recv(client_fd, payload_buffer + payload_bytes_received,
+             payload_size - payload_bytes_received, 0));
+    if (chunk_bytes < 0) {
+      return ErrnoError() << "received error polling for message payload";
+    }
+    payload_bytes_received += chunk_bytes;
   }
-  auto msg = std::string(payload_buffer, num_bytes);
+
+  auto msg = std::string(payload_buffer, payload_bytes_received);
 
   auto requests = StorageRequestMessages{};
   if (!requests.ParseFromString(msg)) {
@@ -123,7 +126,11 @@ static Result<void> sendMessage(int client_fd, const StorageReturnMessages& msg)
 }
 
 static int aconfigd_start() {
-  auto init_result = InitializeInMemoryStorageRecords();
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName,
+                           kAvailableStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
     LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
                << init_result.error();
@@ -166,7 +173,14 @@ static int aconfigd_start() {
     auto return_messages = StorageReturnMessages();
     for (auto& request : requests->msgs()) {
       auto* return_msg = return_messages.add_msgs();
-      HandleSocketRequest(request, *return_msg);
+      auto result = aconfigd.HandleSocketRequest(request, *return_msg);
+      if (!result.ok()) {
+        auto* errmsg = return_msg->mutable_error_message();
+        *errmsg = result.error().message();
+        LOG(ERROR) << "Failed to handle socket request: " << *errmsg;
+      } else {
+        LOG(INFO) << "Successfully handled socket request";
+      }
     }
 
     auto result = sendMessage(client_fd.get(), return_messages);

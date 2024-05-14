@@ -53,13 +53,16 @@ java_library {
     apex_available: [
         "//apex_available:anyapex",
         "//apex_available:platform",
-    ]
+    ],
+    jarjar_rules: "jarjar-rules.txt"
 }
 
 cc_test {
-    name: "aconfigd_test",
+    name: "aconfigd_socket_test",
+    team: "trendy_team_android_core_experiments",
     srcs: [
-        "aconfigd_test.cpp",
+        "aconfigd_socket_test.cpp",
+        "aconfigd_util.cpp",
         "aconfigd.proto",
     ],
     static_libs: [
@@ -77,6 +80,9 @@ cc_test {
         "tests/package.map",
         "tests/flag.map",
         "tests/flag.val",
+        "tests/updated_package.map",
+        "tests/updated_flag.map",
+        "tests/updated_flag.val",
     ],
     test_suites: [
         "device-tests",

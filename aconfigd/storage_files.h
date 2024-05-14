@@ -20,11 +20,9 @@
 
 #include <android-base/result.h>
 
-#include <aconfigd.pb.h>
-#include <protos/aconfig_storage_metadata.pb.h>
-#include <aconfig_storage/aconfig_storage_file.hpp>
 #include <aconfig_storage/aconfig_storage_read_api.hpp>
 #include <aconfig_storage/aconfig_storage_write_api.hpp>
+#include <aconfigd.pb.h>
 
 namespace android {
   namespace aconfigd {
@@ -32,14 +30,18 @@ namespace android {
     /// In memory data structure for storage file locations for each container
     struct StorageRecord {
       int version;
-      std::string container;
-      std::string package_map;
-      std::string flag_map;
-      std::string flag_val;
-      std::string flag_info;
-      std::string local_overrides;
-      std::string default_flag_val;
-      uint64_t timestamp;
+      std::string container;            // container name
+      std::string package_map;          // package.map on container
+      std::string flag_map;             // flag.map on container
+      std::string flag_val;             // flag.val on container
+      std::string persist_package_map;  // persist package.map (backup copy for OTA)
+      std::string persist_flag_map;     // persist flag.map (backup copy for OTA)
+      std::string persist_flag_val;     // persist flag.val
+      std::string persist_flag_info;    // persist flag.info
+      std::string local_overrides;      // local flag overrides pb file
+      std::string boot_flag_val;        // boot flag.val
+      std::string boot_flag_info;       // boot flag.info
+      uint64_t timestamp;               // timestamp of flag.val on container
     };
 
     /// Mapped files for a container
@@ -51,10 +53,12 @@ namespace android {
                    const std::string& package_map,
                    const std::string& flag_map,
                    const std::string& flag_val,
+                   const std::string& root_dir,
                    base::Result<void>& status);
 
       /// constructor for existing new storage file set
-      StorageFiles(const aconfig_storage_metadata::storage_file_info& pb);
+      StorageFiles(const PersistStorageRecord& pb,
+                   const std::string& root_dir);
 
       /// destructor
       ~StorageFiles() = default;
@@ -71,6 +75,9 @@ namespace android {
       const StorageRecord& GetStorageRecord() {
         return storage_record_;
       }
+
+      /// has boot copy
+      bool HasBootCopy();
 
       /// return result for package and flag context
       struct PackageFlagContext {
@@ -106,11 +113,17 @@ namespace android {
       /// get persistent flag attribute
       base::Result<uint8_t> GetFlagAttribute(const PackageFlagContext& context);
 
-      /// get server or default flag value
+      /// get server flag value
       base::Result<std::string> GetServerFlagValue(const PackageFlagContext& context);
 
-      /// get local flag value, will error if local flag value does not exist
+      /// get local flag value
       base::Result<std::string> GetLocalFlagValue(const PackageFlagContext& context);
+
+      /// get boot flag value
+      base::Result<std::string> GetBootFlagValue(const PackageFlagContext& context);
+
+      /// get default flag value
+      base::Result<std::string> GetDefaultFlagValue(const PackageFlagContext& context);
 
       /// server flag override, update persistent flag value
       base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
@@ -134,34 +147,59 @@ namespace android {
       /// remove all local overrides
       base::Result<void> RemoveAllLocalFlagValue();
 
-      /// apply local update to boot flag value copy, return stale local overrides
-      base::Result<void> ApplyLocalOverride(const std::string& flag_value_file);
+      /// strcut for server flag value entries
+      struct ServerOverride {
+        std::string package_name;
+        std::string flag_name;
+        std::string flag_value;
+      };
 
       /// get all current server override
-      base::Result<std::vector<aconfig_storage::FlagValueAndInfoSummary>>
-          GetAllServerOverrides();
+      base::Result<std::vector<ServerOverride>> GetServerFlagValues();
 
-      /// remove all but local storage files
-      base::Result<void> RemoveAllButLocalOverrideFile();
+      /// remove all persist storage files
+      base::Result<void> RemoveAllPersistFiles();
 
-      /// remove all storage files
-      base::Result<void> RemoveAllFiles();
+      /// create boot flag value and info files
+      base::Result<void> CreateBootStorageFiles();
+
+      /// struct for flag snapshot
+      struct FlagSnapshot {
+        std::string package_name;
+        std::string flag_name;
+        std::string server_flag_value;
+        std::string local_flag_value;
+        std::string boot_flag_value;
+        std::string default_flag_value;
+        bool is_readwrite;
+        bool has_server_override;
+        bool has_local_override;
+      };
+
+      /// list a flag
+      base::Result<StorageFiles::FlagSnapshot> ListFlag(const std::string& package,
+                                                        const std::string& flag);
+
+      /// list flags
+      base::Result<std::vector<FlagSnapshot>> ListFlags(
+          const std::string& package = "");
 
       private:
-
-      /// map a storage file
-      base::Result<aconfig_storage::MappedStorageFile*> MapStorageFile(
-          aconfig_storage::StorageFileType file_type);
-
-      /// map a mutable storage file
-      base::Result<aconfig_storage::MutableMappedStorageFile*> MapMutableStorageFile(
-          aconfig_storage::StorageFileType file_type);
 
       /// get package map
       base::Result<const aconfig_storage::MappedStorageFile*> GetPackageMap();
 
       /// get flag map
       base::Result<const aconfig_storage::MappedStorageFile*> GetFlagMap();
+
+      /// get default flag val
+      base::Result<const aconfig_storage::MappedStorageFile*> GetFlagVal();
+
+      /// get boot flag val
+      base::Result<const aconfig_storage::MappedStorageFile*> GetBootFlagVal();
+
+      /// get boot flag info
+      base::Result<const aconfig_storage::MappedStorageFile*> GetBootFlagInfo();
 
       /// get persist flag val
       base::Result<const aconfig_storage::MutableMappedStorageFile*> GetPersistFlagVal();
@@ -171,6 +209,9 @@ namespace android {
 
       /// check if flag is read only
       base::Result<bool> IsFlagReadOnly(const PackageFlagContext& context);
+
+      /// apply local update to boot flag value copy
+      base::Result<void> ApplyLocalOverrideToBootFlagValue();
 
       private:
 
@@ -186,10 +227,19 @@ namespace android {
       /// mapped flag map file
       std::unique_ptr<aconfig_storage::MappedStorageFile> flag_map_;
 
-      /// mapped mutable flag value file
+      /// mapped default flag value file
+      std::unique_ptr<aconfig_storage::MappedStorageFile> flag_val_;
+
+      /// mapped boot flag value file
+      std::unique_ptr<aconfig_storage::MappedStorageFile> boot_flag_val_;
+
+      /// mapped boot flag info file
+      std::unique_ptr<aconfig_storage::MappedStorageFile> boot_flag_info_;
+
+      /// mapped persist flag value file
       std::unique_ptr<aconfig_storage::MutableMappedStorageFile> persist_flag_val_;
 
-      /// mapped mutable flag info file
+      /// mapped persist flag info file
       std::unique_ptr<aconfig_storage::MutableMappedStorageFile> persist_flag_info_;
 
     }; // class StorageFiles
