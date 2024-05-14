@@ -28,15 +28,11 @@ using namespace android::base;
 namespace android {
 namespace aconfigd {
 
-/// Mapped files manager
-static StorageFilesManager storage_files_manager(kAconfigdRootDir);
-
-namespace {
-
 /// Handle a flag override request
-Result<void> HandleFlagOverride(const StorageRequestMessage::FlagOverrideMessage& msg,
-                                StorageReturnMessage& return_msg) {
-  auto result = storage_files_manager.UpdateFlagValue(msg.package_name(),
+Result<void> Aconfigd::HandleFlagOverride(
+    const StorageRequestMessage::FlagOverrideMessage& msg,
+    StorageReturnMessage& return_msg) {
+  auto result = storage_files_manager_->UpdateFlagValue(msg.package_name(),
                                                       msg.flag_name(),
                                                       msg.flag_value(),
                                                       msg.is_local());
@@ -46,21 +42,22 @@ Result<void> HandleFlagOverride(const StorageRequestMessage::FlagOverrideMessage
 }
 
 /// Handle new storage request
-Result<void> HandleNewStorage(const StorageRequestMessage::NewStorageMessage& msg,
-                              StorageReturnMessage& return_msg) {
-  auto updated = storage_files_manager.AddOrUpdateStorageFiles(
+Result<void> Aconfigd::HandleNewStorage(
+    const StorageRequestMessage::NewStorageMessage& msg,
+    StorageReturnMessage& return_msg) {
+  auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
       msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
   RETURN_IF_ERROR(updated, "Failed to add or update container");
 
-  auto write_result = storage_files_manager.WritePersistStorageRecordsToFile(
-      kPersistentStorageRecordsFileName);
+  auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
+      persist_storage_records_);
   RETURN_IF_ERROR(write_result, "Failed to write to persist storage records");
 
-  auto copy = storage_files_manager.CreateStorageBootCopy(msg.container());
+  auto copy = storage_files_manager_->CreateStorageBootCopy(msg.container());
   RETURN_IF_ERROR(copy, "Failed to make a boot copy for " + msg.container());
 
-  write_result = storage_files_manager.WriteAvailableStorageRecordsToFile(
-      kAvailableStorageRecordsFileName);
+  write_result = storage_files_manager_->WriteAvailableStorageRecordsToFile(
+      available_storage_records_);
   RETURN_IF_ERROR(write_result, "Failed to write to available storage records");
 
   auto result_msg = return_msg.mutable_new_storage_message();
@@ -69,9 +66,10 @@ Result<void> HandleNewStorage(const StorageRequestMessage::NewStorageMessage& ms
 }
 
 /// Handle a flag query request
-Result<void> HandleFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
-                             StorageReturnMessage& return_msg) {
-  auto snapshot = storage_files_manager.ListFlag(msg.package_name(), msg.flag_name());
+Result<void> Aconfigd::HandleFlagQuery(
+    const StorageRequestMessage::FlagQueryMessage& msg,
+    StorageReturnMessage& return_msg) {
+  auto snapshot = storage_files_manager_->ListFlag(msg.package_name(), msg.flag_name());
   RETURN_IF_ERROR(snapshot, "Failed query failed");
   auto result_msg = return_msg.mutable_flag_query_message();
   result_msg->set_package_name(snapshot->package_name);
@@ -87,14 +85,14 @@ Result<void> HandleFlagQuery(const StorageRequestMessage::FlagQueryMessage& msg,
 }
 
 /// Handle override removal request
-Result<void> HandleLocalOverrideRemoval(
+Result<void> Aconfigd::HandleLocalOverrideRemoval(
     const StorageRequestMessage::RemoveLocalOverrideMessage& msg,
     StorageReturnMessage& return_msg) {
   auto result = Result<void>();
   if (msg.remove_all()) {
-    result = storage_files_manager.RemoveAllLocalOverrides();
+    result = storage_files_manager_->RemoveAllLocalOverrides();
   } else {
-    result = storage_files_manager.RemoveFlagLocalOverride(
+    result = storage_files_manager_->RemoveFlagLocalOverride(
         msg.package_name(), msg.flag_name());
   }
   RETURN_IF_ERROR(result, "");
@@ -103,12 +101,12 @@ Result<void> HandleLocalOverrideRemoval(
 }
 
 /// Handle storage reset
-Result<void> HandleStorageReset(StorageReturnMessage& return_msg) {
-  auto result = storage_files_manager.ResetAllStorage();
+Result<void> Aconfigd::HandleStorageReset(StorageReturnMessage& return_msg) {
+  auto result = storage_files_manager_->ResetAllStorage();
   RETURN_IF_ERROR(result, "Failed to reset all storage");
 
-  result = storage_files_manager.WritePersistStorageRecordsToFile(
-      kPersistentStorageRecordsFileName);
+  result = storage_files_manager_->WritePersistStorageRecordsToFile(
+      persist_storage_records_);
   RETURN_IF_ERROR(result, "Failed to write persist storage records");
 
   return_msg.mutable_reset_storage_message();
@@ -116,20 +114,21 @@ Result<void> HandleStorageReset(StorageReturnMessage& return_msg) {
 }
 
 /// Handle list storage
-Result<void> HandleListStorage(const StorageRequestMessage::ListStorageMessage& msg,
-                               StorageReturnMessage& return_message) {
+Result<void> Aconfigd::HandleListStorage(
+    const StorageRequestMessage::ListStorageMessage& msg,
+    StorageReturnMessage& return_message) {
   auto flags = Result<std::vector<StorageFiles::FlagSnapshot>>();
   switch (msg.msg_case()) {
     case StorageRequestMessage::ListStorageMessage::kAll: {
-      flags = storage_files_manager.ListAllAvailableFlags();
+      flags = storage_files_manager_->ListAllAvailableFlags();
       break;
     }
     case StorageRequestMessage::ListStorageMessage::kContainer: {
-      flags = storage_files_manager.ListFlagsInContainer(msg.container());
+      flags = storage_files_manager_->ListFlagsInContainer(msg.container());
       break;
     }
     case StorageRequestMessage::ListStorageMessage::kPackageName: {
-      flags = storage_files_manager.ListFlagsInPackage(msg.package_name());
+      flags = storage_files_manager_->ListFlagsInPackage(msg.package_name());
       break;
     }
     default:
@@ -153,20 +152,18 @@ Result<void> HandleListStorage(const StorageRequestMessage::ListStorageMessage& 
   return {};
 }
 
-} // namespace
-
 /// Initialize in memory aconfig storage records
-Result<void> InitializeInMemoryStorageRecords() {
-  auto records_pb = ReadPbFromFile<PersistStorageRecords>(kPersistentStorageRecordsFileName);
+Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
+  auto records_pb = ReadPbFromFile<PersistStorageRecords>(persist_storage_records_);
   RETURN_IF_ERROR(records_pb, "Unable to read persistent storage records");
   for (const auto& entry : records_pb->records()) {
-    storage_files_manager.RestoreStorageFiles(entry);
+    storage_files_manager_->RestoreStorageFiles(entry);
   }
   return {};
 }
 
 /// Initialize platform RO partition flag storage
-Result<void> InitializePlatformStorage() {
+Result<void> Aconfigd::InitializePlatformStorage() {
   auto value_files = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
     {"system_ext", "/system_ext/etc/aconfig"},
@@ -182,21 +179,21 @@ Result<void> InitializePlatformStorage() {
       continue;
     }
 
-    auto updated = storage_files_manager.AddOrUpdateStorageFiles(
+    auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
         container, package_file, flag_file, value_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 
-    auto write_result = storage_files_manager.WritePersistStorageRecordsToFile(
-        kPersistentStorageRecordsFileName);
+    auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
+        persist_storage_records_);
     RETURN_IF_ERROR(write_result, "Failed to write to persist storage records");
 
-    auto copied = storage_files_manager.CreateStorageBootCopy(container);
+    auto copied = storage_files_manager_->CreateStorageBootCopy(container);
     RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
                     + container)
 
-    write_result = storage_files_manager.WriteAvailableStorageRecordsToFile(
-        kAvailableStorageRecordsFileName);
+    write_result = storage_files_manager_->WriteAvailableStorageRecordsToFile(
+        available_storage_records_);
     RETURN_IF_ERROR(write_result, "Failed to write to available storage records");
   }
 
@@ -204,8 +201,8 @@ Result<void> InitializePlatformStorage() {
 }
 
 /// Handle incoming messages to aconfigd socket
-Result<void> HandleSocketRequest(const StorageRequestMessage& message,
-                                 StorageReturnMessage& return_message) {
+Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
+                                           StorageReturnMessage& return_message) {
   auto result = Result<void>();
 
   switch (message.msg_case()) {
