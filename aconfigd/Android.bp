@@ -98,27 +98,20 @@ cc_test {
     team: "trendy_team_android_core_experiments",
     srcs: [
         "aconfigd_socket_test.cpp",
-        "aconfigd_util.cpp",
         "aconfigd.proto",
     ],
     static_libs: [
         "libgmock",
-        "libaconfig_new_storage_flags",
-        "libaconfig_storage_read_api_cc",
-        "libaconfig_storage_write_api_cc",
-        "libaconfig_storage_protos_cc",
         "libprotobuf-cpp-lite",
         "libbase",
         "libcutils",
         "liblog",
+        "libaconfig_new_storage_flags",
     ],
     data: [
         "tests/package.map",
         "tests/flag.map",
         "tests/flag.val",
-        "tests/updated_package.map",
-        "tests/updated_flag.map",
-        "tests/updated_flag.val",
     ],
     test_suites: [
         "device-tests",
