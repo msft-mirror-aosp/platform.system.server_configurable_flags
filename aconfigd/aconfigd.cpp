@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
+#include <memory>
 #include <string>
+#include <dirent.h>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
@@ -164,6 +166,12 @@ Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
 
 /// Initialize platform RO partition flag storage
 Result<void> Aconfigd::InitializePlatformStorage() {
+  auto init_result = InitializeInMemoryStorageRecords();
+  RETURN_IF_ERROR(init_result, "Failed to init from persist stoage records");
+
+  auto remove_result = RemoveFilesInDir(root_dir_ + "/boot");
+  RETURN_IF_ERROR(remove_result, "Failed to clean boot dir");
+
   auto value_files = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
     {"system_ext", "/system_ext/etc/aconfig"},
@@ -176,6 +184,55 @@ Result<void> Aconfigd::InitializePlatformStorage() {
     auto value_file = std::string(storage_dir) + "/flag.val";
 
     if (!FileNonZeroSize(value_file)) {
+      continue;
+    }
+
+    auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
+        container, package_file, flag_file, value_file);
+    RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
+                    + container);
+
+    auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
+        persist_storage_records_);
+    RETURN_IF_ERROR(write_result, "Failed to write to persist storage records");
+
+    auto copied = storage_files_manager_->CreateStorageBootCopy(container);
+    RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
+                    + container)
+
+    write_result = storage_files_manager_->WriteAvailableStorageRecordsToFile(
+        available_storage_records_);
+    RETURN_IF_ERROR(write_result, "Failed to write to available storage records");
+  }
+
+  return {};
+}
+
+/// Initialize mainline flag storage
+Result<void> Aconfigd::InitializeMainlineStorage() {
+  auto init_result = InitializeInMemoryStorageRecords();
+  RETURN_IF_ERROR(init_result, "Failed to init from persist stoage records");
+
+  auto apex_dir = std::unique_ptr<DIR, int (*)(DIR*)>(opendir("/apex"), closedir);
+  if (!apex_dir) {
+    return {};
+  }
+
+  struct dirent* entry;
+  while ((entry = readdir(apex_dir.get())) != nullptr) {
+    if (entry->d_type != DT_DIR) continue;
+
+    auto container = std::string(entry->d_name);
+    if (container[0] == '.') continue;
+    if (container.find('@') != std::string::npos) continue;
+    if (container == "sharedlibs") continue;
+
+    auto storage_dir = std::string("/apex/") + container + "/etc";
+    auto package_file = std::string(storage_dir) + "/package.map";
+    auto flag_file = std::string(storage_dir) + "/flag.map";
+    auto value_file = std::string(storage_dir) + "/flag.val";
+
+    if (!FileExists(value_file) || !FileNonZeroSize(value_file)) {
       continue;
     }
 
