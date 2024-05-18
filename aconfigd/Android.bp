@@ -14,9 +14,11 @@ cc_binary {
     "libaconfig_storage_read_api_cc",
     "libaconfig_storage_write_api_cc",
     "libaconfig_storage_protos_cc",
+  ],
+  shared_libs: [
+    "libcutils",
     "libprotobuf-cpp-lite",
     "libbase",
-    "libcutils",
     "liblog",
   ],
   init_rc: ["aconfigd.rc"],
@@ -78,6 +80,8 @@ cc_test {
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
         "libaconfig_storage_protos_cc",
+    ],
+    shared_libs: [
         "libprotobuf-cpp-lite",
         "libbase",
         "liblog",
@@ -102,27 +106,22 @@ cc_test {
     team: "trendy_team_android_core_experiments",
     srcs: [
         "aconfigd_socket_test.cpp",
-        "aconfigd_util.cpp",
         "aconfigd.proto",
     ],
     static_libs: [
         "libgmock",
         "libaconfig_new_storage_flags",
-        "libaconfig_storage_read_api_cc",
-        "libaconfig_storage_write_api_cc",
-        "libaconfig_storage_protos_cc",
+    ],
+    shared_libs: [
+        "libcutils",
         "libprotobuf-cpp-lite",
         "libbase",
-        "libcutils",
         "liblog",
     ],
     data: [
         "tests/package.map",
         "tests/flag.map",
         "tests/flag.val",
-        "tests/updated_package.map",
-        "tests/updated_flag.map",
-        "tests/updated_flag.val",
     ],
     test_suites: [
         "device-tests",

@@ -26,7 +26,7 @@
 using namespace android::aconfigd;
 using namespace android::base;
 
-static int aconfigd_init() {
+static int aconfigd_platform_init() {
   auto aconfigd = Aconfigd(kAconfigdRootDir,
                            kPersistentStorageRecordsFileName,
                            kAvailableStorageRecordsFileName);
@@ -51,6 +51,11 @@ static int aconfigd_init() {
     return 1;
   }
 
+  return 0;
+}
+
+static int aconfigd_mainline_init() {
+  // TODO mainline storage files initialization
   return 0;
 }
 
@@ -199,14 +204,14 @@ int main(int argc, char** argv) {
 
   android::base::InitLogging(argv, &android::base::KernelLogger);
 
-  if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {
+  if (argc == 1) {
+    return aconfigd_start();
+  } else if (argc == 2 && strcmp(argv[1], "--platform_init")) {
+    return aconfigd_platform_init();
+  } else if (argc == 2 && strcmp(argv[1], "--mainline_init")) {
+    return aconfigd_mainline_init();
+  } else {
     LOG(ERROR) << "invalid aconfigd command";
     return 1;
   }
-
-  if (argc == 2 && strcmp("--initialize", argv[1]) == 0) {
-    return aconfigd_init();
-  }
-
-  return aconfigd_start();
 }

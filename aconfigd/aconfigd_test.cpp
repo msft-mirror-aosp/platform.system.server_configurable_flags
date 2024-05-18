@@ -281,6 +281,40 @@ std::string AconfigdTest::updated_package_map_;
 std::string AconfigdTest::updated_flag_map_;
 std::string AconfigdTest::updated_flag_val_;
 
+TEST_F(AconfigdTest, init_platform_storage) {
+  auto a_mock = AconfigdMock();
+  a_mock.aconfigd.InitializePlatformStorage();
+
+  auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
+    {"system", "/system/etc/aconfig"},
+    {"system_ext", "/system_ext/etc/aconfig"},
+    {"vendor", "/vendor/etc/aconfig"},
+    {"product", "/product/etc/aconfig"}};
+
+  for (auto const& [container, storage_dir] : platform_aconfig_dirs) {
+    auto package_map = std::string(storage_dir) + "/package.map";
+    auto flag_map = std::string(storage_dir) + "/flag.map";
+    auto flag_val = std::string(storage_dir) + "/flag.val";
+    if (!FileNonZeroSize(flag_val)) {
+      continue;
+    }
+
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".package.map"));
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".flag.map"));
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".val"));
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".info"));
+    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".val"));
+    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".info"));
+
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".package.map", package_map);
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".flag.map", flag_map);
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".val", flag_val);
+    verify_equal_file_content(a_mock.boot_dir + "/" + container + ".val", flag_val);
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
+                              a_mock.boot_dir + "/" + container + ".info");
+  }
+}
+
 TEST_F(AconfigdTest, add_new_storage) {
   // create mocks
   auto a_mock = AconfigdMock();
