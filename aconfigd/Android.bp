@@ -60,7 +60,6 @@ java_library {
         "//apex_available:anyapex",
         "//apex_available:platform",
     ],
-    jarjar_rules: "jarjar-rules.txt"
 }
 
 cc_test {
@@ -126,5 +125,20 @@ cc_test {
     test_suites: [
         "device-tests",
         "general-tests",
+    ],
+}
+
+java_library {
+    name: "aconfigd_java_utils",
+    srcs: [
+        "srcs/**/*.java",
+    ],
+    static_libs: [
+        "aconfigd_java_proto_lib",
+    ],
+    min_sdk_version: "UpsideDownCake",
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
     ],
 }
