@@ -281,9 +281,10 @@ std::string AconfigdTest::updated_package_map_;
 std::string AconfigdTest::updated_flag_map_;
 std::string AconfigdTest::updated_flag_val_;
 
-TEST_F(AconfigdTest, init_platform_storage) {
+TEST_F(AconfigdTest, init_platform_storage_fresh) {
   auto a_mock = AconfigdMock();
-  a_mock.aconfigd.InitializePlatformStorage();
+  auto init_result = a_mock.aconfigd.InitializePlatformStorage();
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
 
   auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
@@ -313,6 +314,58 @@ TEST_F(AconfigdTest, init_platform_storage) {
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
                               a_mock.boot_dir + "/" + container + ".info");
   }
+}
+
+TEST_F(AconfigdTest, init_platform_storage_reboot) {
+  auto a_mock = AconfigdMock();
+  auto init_result = a_mock.aconfigd.InitializePlatformStorage();
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
+  auto old_timestamp = GetFileTimeStamp(a_mock.boot_dir + "/system.val");
+  ASSERT_TRUE(old_timestamp.ok()) << old_timestamp.error();
+
+  std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  init_result = a_mock.aconfigd.InitializePlatformStorage();
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
+  auto new_timestamp = GetFileTimeStamp(a_mock.boot_dir + "/system.val");
+  ASSERT_TRUE(new_timestamp.ok()) << new_timestamp.error();
+
+  // the boot file must be refreshed
+  ASSERT_TRUE(*new_timestamp != *old_timestamp);
+
+  auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
+    {"system", "/system/etc/aconfig"},
+    {"system_ext", "/system_ext/etc/aconfig"},
+    {"vendor", "/vendor/etc/aconfig"},
+    {"product", "/product/etc/aconfig"}};
+
+  for (auto const& [container, storage_dir] : platform_aconfig_dirs) {
+    auto package_map = std::string(storage_dir) + "/package.map";
+    auto flag_map = std::string(storage_dir) + "/flag.map";
+    auto flag_val = std::string(storage_dir) + "/flag.val";
+    if (!FileNonZeroSize(flag_val)) {
+      continue;
+    }
+
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".package.map"));
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".flag.map"));
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".val"));
+    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".info"));
+    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".val"));
+    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".info"));
+
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".package.map", package_map);
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".flag.map", flag_map);
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".val", flag_val);
+    verify_equal_file_content(a_mock.boot_dir + "/" + container + ".val", flag_val);
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
+                              a_mock.boot_dir + "/" + container + ".info");
+  }
+}
+
+TEST_F(AconfigdTest, init_mainline_storage_fresh) {
+  auto a_mock = AconfigdMock();
+  auto init_result = a_mock.aconfigd.InitializeMainlineStorage();
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
 }
 
 TEST_F(AconfigdTest, add_new_storage) {

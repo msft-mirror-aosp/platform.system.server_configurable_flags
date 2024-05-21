@@ -31,23 +31,9 @@ static int aconfigd_platform_init() {
                            kPersistentStorageRecordsFileName,
                            kAvailableStorageRecordsFileName);
 
-  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
+  auto init_result = aconfigd.InitializePlatformStorage();
   if (!init_result.ok()) {
-    LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
-               << init_result.error();
-    return 1;
-  }
-
-  // clear boot dir to start fresh at each boot
-  auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
-  if (!remove_result.ok()) {
-    LOG(ERROR) <<"failed to clear boot dir: " << remove_result.error();
-    return 1;
-  }
-
-  auto plat_result = aconfigd.InitializePlatformStorage();
-  if (!plat_result.ok()) {
-    LOG(ERROR) << "failed to initialize storage records: " << plat_result.error();
+    LOG(ERROR) << "failed to initialize platform storage records: " << init_result.error();
     return 1;
   }
 
@@ -55,7 +41,16 @@ static int aconfigd_platform_init() {
 }
 
 static int aconfigd_mainline_init() {
-  // TODO mainline storage files initialization
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName,
+                           kAvailableStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeMainlineStorage();
+  if (!init_result.ok()) {
+    LOG(ERROR) << "failed to initialize mainline storage records: " << init_result.error();
+    return 1;
+  }
+
   return 0;
 }
 
@@ -206,9 +201,9 @@ int main(int argc, char** argv) {
 
   if (argc == 1) {
     return aconfigd_start();
-  } else if (argc == 2 && strcmp(argv[1], "--platform_init")) {
+  } else if (argc == 2 && strcmp(argv[1], "--platform_init") == 0) {
     return aconfigd_platform_init();
-  } else if (argc == 2 && strcmp(argv[1], "--mainline_init")) {
+  } else if (argc == 2 && strcmp(argv[1], "--mainline_init") == 0) {
     return aconfigd_mainline_init();
   } else {
     LOG(ERROR) << "invalid aconfigd command";
