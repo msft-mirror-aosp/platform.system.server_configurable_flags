@@ -26,28 +26,28 @@
 using namespace android::aconfigd;
 using namespace android::base;
 
-static int aconfigd_init() {
+static int aconfigd_platform_init() {
   auto aconfigd = Aconfigd(kAconfigdRootDir,
                            kPersistentStorageRecordsFileName,
                            kAvailableStorageRecordsFileName);
 
-  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
+  auto init_result = aconfigd.InitializePlatformStorage();
   if (!init_result.ok()) {
-    LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
-               << init_result.error();
+    LOG(ERROR) << "failed to initialize platform storage records: " << init_result.error();
     return 1;
   }
 
-  // clear boot dir to start fresh at each boot
-  auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
-  if (!remove_result.ok()) {
-    LOG(ERROR) <<"failed to clear boot dir: " << remove_result.error();
-    return 1;
-  }
+  return 0;
+}
 
-  auto plat_result = aconfigd.InitializePlatformStorage();
-  if (!plat_result.ok()) {
-    LOG(ERROR) << "failed to initialize storage records: " << plat_result.error();
+static int aconfigd_mainline_init() {
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName,
+                           kAvailableStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeMainlineStorage();
+  if (!init_result.ok()) {
+    LOG(ERROR) << "failed to initialize mainline storage records: " << init_result.error();
     return 1;
   }
 
@@ -199,14 +199,14 @@ int main(int argc, char** argv) {
 
   android::base::InitLogging(argv, &android::base::KernelLogger);
 
-  if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {
+  if (argc == 1) {
+    return aconfigd_start();
+  } else if (argc == 2 && strcmp(argv[1], "--platform_init") == 0) {
+    return aconfigd_platform_init();
+  } else if (argc == 2 && strcmp(argv[1], "--mainline_init") == 0) {
+    return aconfigd_mainline_init();
+  } else {
     LOG(ERROR) << "invalid aconfigd command";
     return 1;
   }
-
-  if (argc == 2 && strcmp("--initialize", argv[1]) == 0) {
-    return aconfigd_init();
-  }
-
-  return aconfigd_start();
 }
