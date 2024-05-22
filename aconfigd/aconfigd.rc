@@ -1,10 +1,20 @@
-service aconfigd-init /system/bin/aconfigd --initialize
+service aconfigd-platform-init /system/bin/aconfigd --platform_init
     class core
     user system
     group system
     oneshot
     disabled # does not start with the core class
-    reboot_on_failure reboot
+    #turn it on when b/312444587 completes
+    #reboot_on_failure reboot
+
+service aconfigd-mainline-init /system/bin/aconfigd --mainline_init
+    class core
+    user system
+    group system
+    oneshot
+    disabled # does not start with the core class
+    #turn it on when b/312444587 completes
+    #reboot_on_failure reboot
 
 service aconfigd /system/bin/aconfigd
     class core
@@ -12,5 +22,6 @@ service aconfigd /system/bin/aconfigd
     group system
     oneshot
     disabled # does not start with the core class
-    reboot_on_failure reboot
+    #turn it on when b/312444587 completes
+    #reboot_on_failure reboot
     socket aconfigd stream 666 system system
