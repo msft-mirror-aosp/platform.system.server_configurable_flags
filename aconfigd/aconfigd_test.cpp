@@ -30,6 +30,7 @@ namespace aconfigd {
 struct AconfigdMock {
   TemporaryDir root_dir;
   const std::string flags_dir;
+  const std::string maps_dir;
   const std::string boot_dir;
   const std::string persist_pb;
   const std::string available_pb;
@@ -38,11 +39,13 @@ struct AconfigdMock {
   AconfigdMock()
       : root_dir()
       , flags_dir(std::string(root_dir.path) + "/flags")
+      , maps_dir(std::string(root_dir.path) + "/maps")
       , boot_dir(std::string(root_dir.path) + "/boot")
       , persist_pb(std::string(root_dir.path) + "/persist.pb")
       , available_pb(std::string(root_dir.path) + "/boot/available.pb")
       , aconfigd(root_dir.path, persist_pb, available_pb) {
     mkdir(flags_dir.c_str(), 0770);
+    mkdir(maps_dir.c_str(), 0770);
     mkdir(boot_dir.c_str(), 0775);
   }
 
@@ -300,15 +303,15 @@ TEST_F(AconfigdTest, init_platform_storage_fresh) {
       continue;
     }
 
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".package.map"));
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".flag.map"));
+    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".package.map"));
+    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".flag.map"));
     ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".val"));
     ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".info"));
     ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".val"));
     ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".info"));
 
-    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".package.map", package_map);
-    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".flag.map", flag_map);
+    verify_equal_file_content(a_mock.maps_dir + "/" + container + ".package.map", package_map);
+    verify_equal_file_content(a_mock.maps_dir + "/" + container + ".flag.map", flag_map);
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".val", flag_val);
     verify_equal_file_content(a_mock.boot_dir + "/" + container + ".val", flag_val);
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
@@ -346,15 +349,15 @@ TEST_F(AconfigdTest, init_platform_storage_reboot) {
       continue;
     }
 
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".package.map"));
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".flag.map"));
+    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".package.map"));
+    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".flag.map"));
     ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".val"));
     ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".info"));
     ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".val"));
     ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".info"));
 
-    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".package.map", package_map);
-    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".flag.map", flag_map);
+    verify_equal_file_content(a_mock.maps_dir + "/" + container + ".package.map", package_map);
+    verify_equal_file_content(a_mock.maps_dir + "/" + container + ".flag.map", flag_map);
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".val", flag_val);
     verify_equal_file_content(a_mock.boot_dir + "/" + container + ".val", flag_val);
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
@@ -423,15 +426,15 @@ TEST_F(AconfigdTest, add_new_storage) {
   ASSERT_TRUE(found);
 
   // verify persist and boot files
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.package.map"));
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.flag.map"));
+  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.package.map"));
+  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.flag.map"));
   ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.val"));
   ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.info"));
   ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.val"));
   ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.info"));
 
-  verify_equal_file_content(a_mock.flags_dir + "/mockup.package.map", package_map_);
-  verify_equal_file_content(a_mock.flags_dir + "/mockup.flag.map", flag_map_);
+  verify_equal_file_content(a_mock.maps_dir + "/mockup.package.map", package_map_);
+  verify_equal_file_content(a_mock.maps_dir + "/mockup.flag.map", flag_map_);
   verify_equal_file_content(a_mock.flags_dir + "/mockup.val", flag_val_);
   verify_equal_file_content(a_mock.boot_dir + "/mockup.val", flag_val_);
   verify_equal_file_content(a_mock.flags_dir + "/mockup.info",
@@ -510,16 +513,16 @@ TEST_F(AconfigdTest, container_update_in_ota) {
   ASSERT_TRUE(found);
 
   // verify persist and boot files
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.package.map"));
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.flag.map"));
+  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.package.map"));
+  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.flag.map"));
   ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.val"));
   ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.info"));
   ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.val"));
   ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.info"));
 
-  verify_equal_file_content(a_mock.flags_dir + "/mockup.package.map",
+  verify_equal_file_content(a_mock.maps_dir + "/mockup.package.map",
                             updated_package_map_);
-  verify_equal_file_content(a_mock.flags_dir + "/mockup.flag.map", updated_flag_map_);
+  verify_equal_file_content(a_mock.maps_dir + "/mockup.flag.map", updated_flag_map_);
   verify_equal_file_content(a_mock.flags_dir + "/mockup.val", updated_flag_val_);
 
   // the boot copy should never be updated
