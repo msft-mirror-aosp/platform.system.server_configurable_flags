@@ -17,7 +17,6 @@
 #include <android-base/logging.h>
 #include <unistd.h>
 
-#include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfig_storage/aconfig_storage_file.hpp>
 
 #include "aconfigd.h"
