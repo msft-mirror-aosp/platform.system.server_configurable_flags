@@ -21,7 +21,6 @@ import android.aconfigd.Aconfigd.StorageRequestMessages;
 import android.aconfigd.Aconfigd.StorageReturnMessage;
 import android.aconfigd.Aconfigd.StorageReturnMessages;
 import android.net.LocalSocket;
-import android.net.LocalSocketAddress;
 import android.util.Slog;
 import android.util.proto.ProtoInputStream;
 import android.util.proto.ProtoOutputStream;
@@ -29,6 +28,9 @@ import android.util.proto.ProtoOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.Map;
 
 /** @hide */
@@ -105,23 +107,13 @@ public class AconfigdJavaUtils {
      * @param requests stream of requests
      * @hide
      */
-    public static ProtoInputStream sendAconfigdRequests(ProtoOutputStream requests) {
-        // connect to aconfigd socket
-        LocalSocket client = new LocalSocket();
-        try {
-            client.connect(
-                    new LocalSocketAddress("aconfigd", LocalSocketAddress.Namespace.RESERVED));
-            Slog.i(TAG, "connected to aconfigd socket");
-        } catch (IOException ioe) {
-            Slog.i(TAG, "failed to connect to aconfigd socket", ioe);
-            return null;
-        }
-
+    public static ProtoInputStream sendAconfigdRequests(
+            LocalSocket localSocket, ProtoOutputStream requests) {
         DataInputStream inputStream = null;
         DataOutputStream outputStream = null;
         try {
-            inputStream = new DataInputStream(client.getInputStream());
-            outputStream = new DataOutputStream(client.getOutputStream());
+            inputStream = new DataInputStream(localSocket.getInputStream());
+            outputStream = new DataOutputStream(localSocket.getOutputStream());
         } catch (IOException ioe) {
             Slog.e(TAG, "failed to get local socket iostreams", ioe);
             return null;
@@ -158,7 +150,9 @@ public class AconfigdJavaUtils {
      * @hide
      */
     public static void stageFlagsInNewStorage(
-            Map<String, Map<String, String>> propsToStage, boolean isLocal) {
+            LocalSocket localSocket,
+            Map<String, Map<String, String>> propsToStage,
+            boolean isLocal) {
         // write aconfigd requests proto to proto output stream
         int num_requests = 0;
         ProtoOutputStream requests = new ProtoOutputStream();
@@ -184,7 +178,7 @@ public class AconfigdJavaUtils {
         }
 
         // send requests to aconfigd and obtain the return
-        ProtoInputStream returns = sendAconfigdRequests(requests);
+        ProtoInputStream returns = sendAconfigdRequests(localSocket, requests);
 
         // deserialize back using proto input stream
         try {
@@ -192,5 +186,102 @@ public class AconfigdJavaUtils {
         } catch (IOException ioe) {
             Slog.e(TAG, "failed to parse aconfigd return", ioe);
         }
+    }
+
+    /** @hide */
+    public static Map<String, AconfigdFlagQueryReturnMessage> listFlagsValueInNewStorage(
+            LocalSocket localSocket) {
+
+        ProtoOutputStream requests = new ProtoOutputStream();
+        long msgsToken = requests.start(StorageRequestMessages.MSGS);
+        long msgToken = requests.start(StorageRequestMessage.LIST_STORAGE_MESSAGE);
+        requests.write(StorageRequestMessage.ListStorageMessage.ALL, true);
+        requests.end(msgToken);
+        requests.end(msgsToken);
+
+        ProtoInputStream res = sendAconfigdRequests(localSocket, requests);
+        Map<String, AconfigdFlagQueryReturnMessage> flagMap = new HashMap<>();
+        Deque<Long> tokens = new ArrayDeque<>();
+        try {
+            while (res.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
+                tokens.push(res.start(res.getFieldNumber()));
+                if (res.getFieldNumber() != (int) StorageReturnMessage.FLAG_QUERY_MESSAGE) {
+                    continue;
+                }
+                AconfigdFlagQueryReturnMessage flagQueryReturnMessage = readFromProto(res);
+                res.end(tokens.pop());
+                flagMap.put(flagQueryReturnMessage.getFullFlagName(), flagQueryReturnMessage);
+            }
+        } catch (IOException e) {
+            Slog.e(TAG, "Failed to read protobuf input stream.", e);
+        }
+
+        while (!tokens.isEmpty()) {
+            res.end(tokens.pop());
+        }
+        return flagMap;
+    }
+
+    private static AconfigdFlagQueryReturnMessage readFromProto(ProtoInputStream protoInputStream)
+            throws IOException {
+        AconfigdFlagQueryReturnMessage.Builder builder =
+                new AconfigdFlagQueryReturnMessage.Builder();
+        while (protoInputStream.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
+            switch (protoInputStream.getFieldNumber()) {
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.PACKAGE_NAME:
+                    builder.setPackageName(
+                            protoInputStream.readString(
+                                    StorageReturnMessage.FlagQueryReturnMessage.PACKAGE_NAME));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.FLAG_NAME:
+                    builder.setFlagName(
+                            protoInputStream.readString(
+                                    StorageReturnMessage.FlagQueryReturnMessage.FLAG_NAME));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.SERVER_FLAG_VALUE:
+                    builder.setServerFlagValue(
+                            protoInputStream.readString(
+                                    StorageReturnMessage.FlagQueryReturnMessage.SERVER_FLAG_VALUE));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.LOCAL_FLAG_VALUE:
+                    builder.setLocalFlagValue(
+                            protoInputStream.readString(
+                                    StorageReturnMessage.FlagQueryReturnMessage.LOCAL_FLAG_VALUE));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.BOOT_FLAG_VALUE:
+                    builder.setBootFlagValue(
+                            protoInputStream.readString(
+                                    StorageReturnMessage.FlagQueryReturnMessage.BOOT_FLAG_VALUE));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.DEFAULT_FLAG_VALUE:
+                    builder.setDefaultFlagValue(
+                            protoInputStream.readString(
+                                    StorageReturnMessage.FlagQueryReturnMessage
+                                            .DEFAULT_FLAG_VALUE));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.HAS_SERVER_OVERRIDE:
+                    builder.setHasServerOverride(
+                            protoInputStream.readBoolean(
+                                    StorageReturnMessage.FlagQueryReturnMessage
+                                            .HAS_SERVER_OVERRIDE));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.HAS_LOCAL_OVERRIDE:
+                    builder.setHashLocalOverride(
+                            protoInputStream.readBoolean(
+                                    StorageReturnMessage.FlagQueryReturnMessage
+                                            .HAS_LOCAL_OVERRIDE));
+                    break;
+                case (int) StorageReturnMessage.FlagQueryReturnMessage.IS_READWRITE:
+                    builder.setIsReadWrite(
+                            protoInputStream.readBoolean(
+                                    StorageReturnMessage.FlagQueryReturnMessage.IS_READWRITE));
+                    break;
+                default:
+                    Slog.w(
+                            TAG,
+                            "Could not read undefined field: " + protoInputStream.getFieldNumber());
+            }
+        }
+        return builder.build();
     }
 }
