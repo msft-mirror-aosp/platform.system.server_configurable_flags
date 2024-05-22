@@ -104,10 +104,6 @@ namespace android {
       base::Result<void> WritePersistStorageRecordsToFile(
           const std::string& file_name);
 
-      /// write to available storage records pb file
-      base::Result<void> WriteAvailableStorageRecordsToFile(
-          const std::string& file_name);
-
       /// apply flag override
       base::Result<void> UpdateFlagValue(const std::string& package_name,
                                          const std::string& flag_name,
