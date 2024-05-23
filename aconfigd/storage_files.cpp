@@ -17,7 +17,6 @@
 #include <android-base/logging.h>
 #include <unistd.h>
 
-#include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfig_storage/aconfig_storage_file.hpp>
 
 #include "aconfigd.h"
@@ -63,9 +62,9 @@ namespace android {
     storage_record_.flag_map = flag_map;
     storage_record_.flag_val = flag_val;
     storage_record_.persist_package_map =
-        root_dir + "/flags/" + container + ".package.map";
+        root_dir + "/maps/" + container + ".package.map";
     storage_record_.persist_flag_map =
-        root_dir + "/flags/" + container + ".flag.map";
+        root_dir + "/maps/" + container + ".flag.map";
     storage_record_.persist_flag_val =
         root_dir + "/flags/" + container + ".val";
     storage_record_.persist_flag_info =
@@ -130,9 +129,9 @@ namespace android {
     storage_record_.flag_map = pb.flag_map();
     storage_record_.flag_val = pb.flag_val();
     storage_record_.persist_package_map =
-        root_dir + "/flags/" + pb.container() + ".package.map";
+        root_dir + "/maps/" + pb.container() + ".package.map";
     storage_record_.persist_flag_map =
-        root_dir + "/flags/" + pb.container() + ".flag.map";
+        root_dir + "/maps/" + pb.container() + ".flag.map";
     storage_record_.persist_flag_val =
         root_dir + "/flags/" + pb.container() + ".val";
     storage_record_.persist_flag_info =

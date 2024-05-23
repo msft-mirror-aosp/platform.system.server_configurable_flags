@@ -35,20 +35,14 @@ namespace android {
     static constexpr char kPersistentStorageRecordsFileName[] =
         "/metadata/aconfig/persist_storage_file_records.pb";
 
-    /// Persistent storage records pb file full path
-    static constexpr char kAvailableStorageRecordsFileName[] =
-        "/metadata/aconfig/boot/available_storage_file_records.pb";
-
   class Aconfigd {
     public:
 
     /// constructor
     Aconfigd(const std::string& root_dir,
-             const std::string& persist_storage_records,
-             const std::string& available_storage_records)
+             const std::string& persist_storage_records)
         : root_dir_(root_dir)
         , persist_storage_records_(persist_storage_records)
-        , available_storage_records_(available_storage_records)
         , storage_files_manager_(nullptr) {
       storage_files_manager_.reset(new StorageFilesManager(root_dir_));
     }
@@ -64,7 +58,6 @@ namespace android {
     Aconfigd(Aconfigd&& rhs)
         : root_dir_(rhs.root_dir_)
         , persist_storage_records_(rhs.persist_storage_records_)
-        , available_storage_records_(rhs.available_storage_records_)
         , storage_files_manager_(std::move(rhs.storage_files_manager_))
     {}
     Aconfigd& operator=(Aconfigd&& rhs) = delete;
@@ -121,9 +114,6 @@ namespace android {
 
     /// persist storage records pb file
     const std::string persist_storage_records_;
-
-    /// available storage records pb file
-    const std::string available_storage_records_;
 
     /// storage files manager
     std::unique_ptr<StorageFilesManager> storage_files_manager_;

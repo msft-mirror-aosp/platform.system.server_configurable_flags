@@ -15,9 +15,6 @@
  * limitations under the License.
  */
 
-
-#include <protos/aconfig_storage_metadata.pb.h>
-
 #include "aconfigd.h"
 #include "aconfigd_util.h"
 #include "storage_files_manager.h"
@@ -262,28 +259,6 @@ namespace android {
       record_pb->set_timestamp(record.timestamp);
     }
     return WritePbToFile<PersistStorageRecords>(records_pb, file_name);
-  }
-
-  /// write to available storage records pb file
-  base::Result<void> StorageFilesManager::WriteAvailableStorageRecordsToFile(
-      const std::string& file_name) {
-    auto records_pb = aconfig_storage_metadata::storage_files();
-    for (const auto& [container, storage_files] : all_storage_files_) {
-      if (!storage_files->HasBootCopy()) {
-        continue;
-      }
-      const auto& record = storage_files->GetStorageRecord();
-      auto* record_pb = records_pb.add_files();
-      record_pb->set_version(record.version);
-      record_pb->set_container(record.container);
-      record_pb->set_package_map(record.package_map);
-      record_pb->set_flag_map(record.flag_map);
-      record_pb->set_flag_val(record.boot_flag_val);
-      record_pb->set_flag_info(record.boot_flag_info);
-      record_pb->set_timestamp(record.timestamp);
-    }
-    return WritePbToFile<aconfig_storage_metadata::storage_files>(
-        records_pb, file_name);
   }
 
   /// apply flag override
