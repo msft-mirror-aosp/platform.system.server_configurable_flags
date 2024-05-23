@@ -13,7 +13,6 @@ cc_binary {
     "libaconfig_storage_file_cc",
     "libaconfig_storage_read_api_cc",
     "libaconfig_storage_write_api_cc",
-    "libaconfig_storage_protos_cc",
   ],
   shared_libs: [
     "libcutils",
@@ -78,7 +77,6 @@ cc_test {
         "libaconfig_storage_file_cc",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
-        "libaconfig_storage_protos_cc",
     ],
     shared_libs: [
         "libprotobuf-cpp-lite",
