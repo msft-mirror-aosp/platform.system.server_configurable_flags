@@ -28,7 +28,7 @@ namespace android {
   base::Result<StorageFiles*> StorageFilesManager::GetStorageFiles(
       const std::string& container) {
     if (all_storage_files_.count(container) == 0) {
-      return Error() << "Missing storage files object for " << container;
+      return base::Error() << "Missing storage files object for " << container;
     }
     return all_storage_files_[container].get();
   }
@@ -40,15 +40,15 @@ namespace android {
       const std::string& flag_map,
       const std::string& flag_val) {
     if (all_storage_files_.count(container)) {
-      return Error() << "Storage file object for " << container << " already exists";
+      return base::Error() << "Storage file object for " << container << " already exists";
     }
 
-    auto result = Result<void>({});
+    auto result = base::Result<void>({});
     auto storage_files = std::make_unique<StorageFiles>(
           container, package_map, flag_map, flag_val, root_dir_, result);
 
     if (!result.ok()) {
-      return Error() << "Failed to create storage file object for " << container
+      return base::Error() << "Failed to create storage file object for " << container
                      << ": " << result.error();
     }
 
@@ -61,7 +61,7 @@ namespace android {
   base::Result<void> StorageFilesManager::RestoreStorageFiles(
       const PersistStorageRecord& pb) {
     if (all_storage_files_.count(pb.container())) {
-      return Error() << "Storage file object for " << pb.container()
+      return base::Error() << "Storage file object for " << pb.container()
                      << " already exists";
     }
 
@@ -76,7 +76,7 @@ namespace android {
       const std::string& flag_map,
       const std::string& flag_val) {
     if (!all_storage_files_.count(container)) {
-      return Error() << "Failed to update storage files object for " << container
+      return base::Error() << "Failed to update storage files object for " << container
                      << ", it does not exist";
     }
 
@@ -139,7 +139,7 @@ namespace android {
   }
 
   /// add or update storage file set for a container
-  Result<bool> StorageFilesManager::AddOrUpdateStorageFiles(
+  base::Result<bool> StorageFilesManager::AddOrUpdateStorageFiles(
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
@@ -178,7 +178,7 @@ namespace android {
   base::Result<void> StorageFilesManager::CreateStorageBootCopy(
       const std::string& container) {
     if (!HasContainer(container)) {
-      return Error() << "Cannot create boot copy without persist copy for " << container;
+      return base::Error() << "Cannot create boot copy without persist copy for " << container;
     }
     auto storage_files = GetStorageFiles(container);
     auto copy_result = (**storage_files).CreateBootStorageFiles();
@@ -298,7 +298,7 @@ namespace android {
   }
 
   /// remove a local override
-  Result<void> StorageFilesManager::RemoveFlagLocalOverride(
+  base::Result<void> StorageFilesManager::RemoveFlagLocalOverride(
       const std::string& package,
       const std::string& flag) {
     auto container = GetContainer(package);
