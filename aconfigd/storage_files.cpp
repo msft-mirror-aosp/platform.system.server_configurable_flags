@@ -172,7 +172,7 @@ namespace android {
   base::Result<const MappedStorageFile*> StorageFiles::GetPackageMap() {
     if (!package_map_) {
       if (storage_record_.persist_package_map.empty()) {
-        return Error() << "Missing persist package map file";
+        return base::Error() << "Missing persist package map file";
       }
       auto package_map = map_storage_file(storage_record_.persist_package_map);
       RETURN_IF_ERROR(package_map, "Failed to map persist package map file for " + container_);
@@ -185,7 +185,7 @@ namespace android {
   base::Result<const MappedStorageFile*> StorageFiles::GetFlagMap() {
     if (!flag_map_) {
       if (storage_record_.persist_flag_map.empty()) {
-        return Error() << "Missing persist flag map file";
+        return base::Error() << "Missing persist flag map file";
       }
       auto flag_map = map_storage_file(storage_record_.persist_flag_map);
       RETURN_IF_ERROR(flag_map, "Failed to map persist flag map file for " + container_);
@@ -198,7 +198,7 @@ namespace android {
   base::Result<const MappedStorageFile*> StorageFiles::GetFlagVal() {
     if (!flag_val_) {
       if (storage_record_.flag_val.empty()) {
-        return Error() << "Missing flag val file";
+        return base::Error() << "Missing flag val file";
       }
       auto flag_val = map_storage_file(storage_record_.flag_val);
       RETURN_IF_ERROR(flag_val, "Failed to map flag val file for " + container_);
@@ -211,7 +211,7 @@ namespace android {
   base::Result<const MappedStorageFile*> StorageFiles::GetBootFlagVal() {
     if (!boot_flag_val_) {
       if (storage_record_.boot_flag_val.empty()) {
-        return Error() << "Missing boot flag val file";
+        return base::Error() << "Missing boot flag val file";
       }
       auto flag_val = map_storage_file(storage_record_.boot_flag_val);
       RETURN_IF_ERROR(flag_val, "Failed to map boot flag val file for " + container_);
@@ -224,7 +224,7 @@ namespace android {
   base::Result<const MappedStorageFile*> StorageFiles::GetBootFlagInfo() {
     if (!boot_flag_info_) {
       if (storage_record_.boot_flag_info.empty()) {
-        return Error() << "Missing boot flag info file";
+        return base::Error() << "Missing boot flag info file";
       }
       auto flag_info = map_storage_file(storage_record_.boot_flag_info);
       RETURN_IF_ERROR(flag_info, "Failed to map boot flag info file for " + container_);
@@ -237,7 +237,7 @@ namespace android {
   base::Result<const MutableMappedStorageFile*> StorageFiles::GetPersistFlagVal() {
     if (!persist_flag_val_) {
       if (storage_record_.persist_flag_val.empty()) {
-        return Error() << "Missing persist flag value file";
+        return base::Error() << "Missing persist flag value file";
       }
       auto flag_val = map_mutable_storage_file(storage_record_.persist_flag_val);
       RETURN_IF_ERROR(flag_val, "Failed to map persist flag val file for " + container_);
@@ -250,7 +250,7 @@ namespace android {
   base::Result<const MutableMappedStorageFile*> StorageFiles::GetPersistFlagInfo() {
     if (!persist_flag_info_) {
       if (storage_record_.persist_flag_info.empty()) {
-        return Error() << "Missing persist flag info file";
+        return base::Error() << "Missing persist flag info file";
       }
       auto flag_info = map_mutable_storage_file(storage_record_.persist_flag_info);
       RETURN_IF_ERROR(flag_info, "Failed to map persist flag info file for " + container_);
@@ -292,7 +292,7 @@ namespace android {
     auto pb_file = storage_record_.local_overrides;
     auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
     if (!pb.ok()) {
-      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+      return base::Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
     }
 
     auto applied_overrides = LocalFlagOverrides();
@@ -514,7 +514,7 @@ namespace android {
     auto pb_file = storage_record_.local_overrides;
     auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
     if (!pb.ok()) {
-      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+      return base::Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
     }
 
     for (auto& entry : pb->overrides()) {
@@ -637,7 +637,7 @@ namespace android {
     auto pb_file = storage_record_.local_overrides;
     auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
     if (!pb.ok()) {
-      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+      return base::Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
     }
 
     bool exist = false;
@@ -662,7 +662,7 @@ namespace android {
 
     auto write = WritePbToFile<LocalFlagOverrides>(*pb, pb_file);
     if (!write.ok()) {
-      return Error() << "Failed to write pb to " << pb_file << ": " << write.error();
+      return base::Error() << "Failed to write pb to " << pb_file << ": " << write.error();
     }
 
     auto update = SetHasLocalOverride(context, true);
@@ -722,7 +722,7 @@ namespace android {
     auto pb_file = storage_record_.local_overrides;
     auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
     if (!pb.ok()) {
-      return Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
+      return base::Error() << "Failed to read pb from " << pb_file << ": " << pb.error();
     }
 
     auto remaining_overrides = LocalFlagOverrides();
@@ -801,7 +801,7 @@ namespace android {
   }
 
   /// remove all storage files
-  Result<void> StorageFiles::RemoveAllPersistFiles() {
+  base::Result<void> StorageFiles::RemoveAllPersistFiles() {
     package_map_.reset(nullptr);
     flag_map_.reset(nullptr);
     flag_val_.reset(nullptr);

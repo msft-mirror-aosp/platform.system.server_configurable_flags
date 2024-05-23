@@ -19,7 +19,6 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 
-#include <protos/aconfig_storage_metadata.pb.h>
 #include <aconfigd.pb.h>
 #include "aconfigd_util.h"
 #include "aconfigd.h"
@@ -52,7 +51,7 @@ struct AconfigdMock {
     auto return_msg = StorageReturnMessage();
     auto result = aconfigd.HandleSocketRequest(request, return_msg);
     if (!result.ok()) {
-      return Error() << result.error();
+      return base::Error() << result.error();
     } else {
       return return_msg;
     }

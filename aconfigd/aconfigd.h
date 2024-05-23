@@ -68,13 +68,13 @@ namespace android {
     base::Result<void> InitializeInMemoryStorageRecords();
 
     /// Initialize platform RO partition flag storage
-    Result<void> InitializePlatformStorage();
+    base::Result<void> InitializePlatformStorage();
 
     /// Initialize mainline flag storage
-    Result<void> InitializeMainlineStorage();
+    base::Result<void> InitializeMainlineStorage();
 
     /// Handle incoming messages to aconfigd socket
-    Result<void> HandleSocketRequest(const StorageRequestMessage& message,
+    base::Result<void> HandleSocketRequest(const StorageRequestMessage& message,
                                      StorageReturnMessage& return_message);
 
     private:
