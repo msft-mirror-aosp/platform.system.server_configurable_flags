@@ -58,10 +58,6 @@ Result<void> Aconfigd::HandleNewStorage(
   auto copy = storage_files_manager_->CreateStorageBootCopy(msg.container());
   RETURN_IF_ERROR(copy, "Failed to make a boot copy for " + msg.container());
 
-  write_result = storage_files_manager_->WriteAvailableStorageRecordsToFile(
-      available_storage_records_);
-  RETURN_IF_ERROR(write_result, "Failed to write to available storage records");
-
   auto result_msg = return_msg.mutable_new_storage_message();
   result_msg->set_storage_updated(*updated);
   return {};
@@ -198,11 +194,7 @@ Result<void> Aconfigd::InitializePlatformStorage() {
 
     auto copied = storage_files_manager_->CreateStorageBootCopy(container);
     RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
-                    + container)
-
-    write_result = storage_files_manager_->WriteAvailableStorageRecordsToFile(
-        available_storage_records_);
-    RETURN_IF_ERROR(write_result, "Failed to write to available storage records");
+                    + container);
   }
 
   return {};
@@ -247,11 +239,7 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
 
     auto copied = storage_files_manager_->CreateStorageBootCopy(container);
     RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
-                    + container)
-
-    write_result = storage_files_manager_->WriteAvailableStorageRecordsToFile(
-        available_storage_records_);
-    RETURN_IF_ERROR(write_result, "Failed to write to available storage records");
+                    + container);
   }
 
   return {};

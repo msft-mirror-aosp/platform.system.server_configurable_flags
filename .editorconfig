@@ -1,0 +1,12 @@
+# EditorConfig is a file format and collection of text editor plugins
+# for maintaining consistent coding styles between different editors
+# and IDEs. Most popular editors support this either natively or via
+# plugin.
+#
+# Check https://editorconfig.org for details.
+
+root = true
+
+[*.java]
+indent_style = tab
+indent_size = 4
