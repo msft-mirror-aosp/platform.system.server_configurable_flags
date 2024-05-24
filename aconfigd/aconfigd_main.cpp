@@ -28,8 +28,7 @@ using namespace android::base;
 
 static int aconfigd_platform_init() {
   auto aconfigd = Aconfigd(kAconfigdRootDir,
-                           kPersistentStorageRecordsFileName,
-                           kAvailableStorageRecordsFileName);
+                           kPersistentStorageRecordsFileName);
 
   auto init_result = aconfigd.InitializePlatformStorage();
   if (!init_result.ok()) {
@@ -42,8 +41,7 @@ static int aconfigd_platform_init() {
 
 static int aconfigd_mainline_init() {
   auto aconfigd = Aconfigd(kAconfigdRootDir,
-                           kPersistentStorageRecordsFileName,
-                           kAvailableStorageRecordsFileName);
+                           kPersistentStorageRecordsFileName);
 
   auto init_result = aconfigd.InitializeMainlineStorage();
   if (!init_result.ok()) {
@@ -127,8 +125,7 @@ static Result<void> sendMessage(int client_fd, const StorageReturnMessages& msg)
 
 static int aconfigd_start() {
   auto aconfigd = Aconfigd(kAconfigdRootDir,
-                           kPersistentStorageRecordsFileName,
-                           kAvailableStorageRecordsFileName);
+                           kPersistentStorageRecordsFileName);
 
   auto init_result = aconfigd.InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {

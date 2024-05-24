@@ -39,6 +39,20 @@ public class AconfigdJavaUtils {
     private static String TAG = "AconfigdJavaUtils";
 
     /**
+     * serialize a storage reset request proto via proto output stream
+     *
+     * @param proto
+     * @hide
+     */
+    public static void writeResetStorageRequest(ProtoOutputStream proto) {
+        long msgsToken = proto.start(StorageRequestMessages.MSGS);
+        long msgToken = proto.start(StorageRequestMessage.RESET_STORAGE_MESSAGE);
+        proto.write(StorageRequestMessage.ResetStorageMessage.ALL, true);
+        proto.end(msgToken);
+        proto.end(msgsToken);
+    }
+
+    /**
      * deserialize a flag input proto stream and log
      *
      * @param proto
@@ -124,7 +138,7 @@ public class AconfigdJavaUtils {
             byte[] requests_bytes = requests.getBytes();
             outputStream.writeInt(requests_bytes.length);
             outputStream.write(requests_bytes, 0, requests_bytes.length);
-            Slog.i(TAG, "flag override requests sent to aconfigd");
+            Slog.i(TAG, " requests sent to aconfigd");
         } catch (IOException ioe) {
             Slog.e(TAG, "failed to send requests to aconfigd", ioe);
             return null;
