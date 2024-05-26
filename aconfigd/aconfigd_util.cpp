@@ -15,9 +15,8 @@
  */
 
 #include <memory>
-#include <vector>
 #include <sys/sendfile.h>
-#include <fts.h>
+#include <dirent.h>
 
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
@@ -31,24 +30,17 @@ namespace aconfigd {
 
 /// Remove all files in a dir
 Result<void> RemoveFilesInDir(const std::string& dir) {
-  auto dir_cstr = std::unique_ptr<char[]>(new char[dir.length() + 1]);
-  strcpy(dir_cstr.get(), dir.c_str());
-  char* path[2] {dir_cstr.get(), nullptr};
-
-  FTS* file_system = fts_open(path, FTS_NOCHDIR, 0);
-  if (!file_system) {
-    return ErrnoError() << "fts_open() failed";
+  auto dir_ptr = std::unique_ptr<DIR, int (*)(DIR*)>(opendir(dir.c_str()), closedir);
+  if (!dir_ptr) {
+    return ErrnoError() << "failed to open dir " << dir;
   }
 
-  auto to_delete = std::vector<std::string>();
-  FTSENT* node = nullptr;
-  while ((node = fts_read(file_system))){
-    if (node->fts_info & FTS_F) {
-      to_delete.emplace_back(std::string(node->fts_path));
+  struct dirent* entry;
+  while ((entry = readdir(dir_ptr.get())) != nullptr) {
+    if (entry->d_type != DT_REG) {
+      continue;
     }
-  }
-
-  for (const auto& file : to_delete) {
+    auto file = dir + "/" + entry->d_name;
     if (unlink(file.c_str()) == -1) {
       return ErrnoError() << "unlink() failed for " << file;
     }
@@ -63,6 +55,12 @@ Result<void> CopyFile(const std::string& src, const std::string& dst, mode_t mod
       TEMP_FAILURE_RETRY(open(src.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)));
   if (src_fd == -1) {
     return ErrnoError() << "open() failed for " << src;
+  }
+
+  if (FileExists(dst.c_str())) {
+    if (chmod(dst.c_str(), 0644) == -1) {
+      return ErrnoError() << "chmod() failed for " << dst;
+    }
   }
 
   android::base::unique_fd dst_fd(TEMP_FAILURE_RETRY(
