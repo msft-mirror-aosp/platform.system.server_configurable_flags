@@ -134,7 +134,7 @@ message PersistStorageRecord {
   optional string package_map = 3;
   optional string flag_map = 4;
   optional string flag_val = 5;
-  optional int64 timestamp = 6;
+  optional string digest = 6;
 }
 
 message PersistStorageRecords {
