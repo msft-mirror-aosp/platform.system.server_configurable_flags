@@ -19,6 +19,7 @@ cc_binary {
     "libprotobuf-cpp-lite",
     "libbase",
     "liblog",
+    "libcrypto",
   ],
   init_rc: ["aconfigd.rc"],
   ldflags: ["-Wl,--allow-multiple-definition"],
@@ -82,6 +83,7 @@ cc_test {
         "libprotobuf-cpp-lite",
         "libbase",
         "liblog",
+        "libcrypto",
     ],
     data: [
         "tests/package.map",

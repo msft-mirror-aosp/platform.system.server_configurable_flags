@@ -99,13 +99,19 @@ class AconfigdSocketTest : public ::testing::Test {
     uint32_t payload_size =
         uint32_t(bytes[0]<<24 | bytes[1]<<16 | bytes[2]<<8 | bytes[3]);
     char buffer[payload_size];
-    num_bytes = TEMP_FAILURE_RETRY(recv(*sock_fd, buffer, payload_size, 0));
-    if (num_bytes != payload_size) {
-      return ErrnoError() << "recv() failed for return msg";
+    int payload_bytes_received = 0;
+    while (payload_bytes_received < payload_size) {
+      auto chunk_bytes = TEMP_FAILURE_RETRY(
+          recv(*sock_fd, buffer + payload_bytes_received,
+               payload_size - payload_bytes_received, 0));
+      if (chunk_bytes <= 0) {
+        return ErrnoError() << "recv() failed for return msg";
+      }
+      payload_bytes_received += chunk_bytes;
     }
 
     auto return_messages = StorageReturnMessages{};
-    if (!return_messages.ParseFromString(std::string(buffer, num_bytes))) {
+    if (!return_messages.ParseFromString(std::string(buffer, payload_size))) {
       return Error() << "failed to parse string into proto";
     }
 
@@ -136,10 +142,20 @@ class AconfigdSocketTest : public ::testing::Test {
     msg->set_flag_name(flag);
   }
 
+  void add_list_storage_message(StorageRequestMessages& messages) {
+    auto* message = messages.add_msgs();
+    auto* msg = message->mutable_list_storage_message();
+    msg->set_all(true);
+  }
+
   void verify_new_storage_return_message(const StorageReturnMessage& msg) {
     ASSERT_TRUE(msg.has_new_storage_message()) << msg.error_message();
     auto message = msg.new_storage_message();
     ASSERT_TRUE(message.storage_updated());
+  }
+
+  void verify_list_storage_return_message(const StorageReturnMessage& msg) {
+    ASSERT_TRUE(msg.has_list_storage_message()) << msg.error_message();
   }
 
   void verify_error_message(const StorageReturnMessage& msg,
@@ -187,6 +203,17 @@ TEST_F(AconfigdSocketTest, add_new_storage) {
   auto return_msgs = send_message(request_msgs);
   ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
   verify_new_storage_return_message(return_msgs->msgs(0));
+}
+
+TEST_F(AconfigdSocketTest, storage_list_package) {
+  if (!com::android::aconfig_new_storage::enable_aconfig_storage_daemon()) {
+    return;
+  }
+  auto request_msgs = StorageRequestMessages();
+  add_list_storage_message(request_msgs);
+  auto return_msgs = send_message(request_msgs);
+  ASSERT_TRUE(return_msgs.ok()) << return_msgs.error();
+  verify_list_storage_return_message(return_msgs->msgs(0));
 }
 
 } // namespace aconfigd

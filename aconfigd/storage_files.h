@@ -41,7 +41,7 @@ namespace android {
       std::string local_overrides;      // local flag overrides pb file
       std::string boot_flag_val;        // boot flag.val
       std::string boot_flag_info;       // boot flag.info
-      uint64_t timestamp;               // timestamp of flag.val on container
+      std::string digest;               // digest of storage files
     };
 
     /// Mapped files for a container

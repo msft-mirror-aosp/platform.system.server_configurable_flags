@@ -152,6 +152,16 @@ Result<void> Aconfigd::HandleListStorage(
 
 /// Initialize in memory aconfig storage records
 Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
+  // remove old records pb
+  if (FileExists("/metadata/aconfig/persistent_storage_file_records.pb")) {
+    unlink("/metadata/aconfig/persistent_storage_file_records.pb");
+  }
+
+  // remove old records pb
+  if (FileExists("/metadata/aconfig/persist_storage_file_records.pb")) {
+    unlink("/metadata/aconfig/persist_storage_file_records.pb");
+  }
+
   auto records_pb = ReadPbFromFile<PersistStorageRecords>(persist_storage_records_);
   RETURN_IF_ERROR(records_pb, "Unable to read persistent storage records");
   for (const auto& entry : records_pb->records()) {

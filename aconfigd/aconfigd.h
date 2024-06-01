@@ -33,7 +33,7 @@ namespace android {
 
     /// Persistent storage records pb file full path
     static constexpr char kPersistentStorageRecordsFileName[] =
-        "/metadata/aconfig/persist_storage_file_records.pb";
+        "/metadata/aconfig/storage_records.pb";
 
   class Aconfigd {
     public:

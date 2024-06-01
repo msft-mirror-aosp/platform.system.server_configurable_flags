@@ -44,15 +44,15 @@ namespace android {
       , boot_flag_info_(nullptr)
       , persist_flag_val_(nullptr)
       , persist_flag_info_(nullptr) {
-    auto timestamp = GetFileTimeStamp(flag_val);
-    if (!timestamp.ok()) {
-      status = base::Error() << "failed to get time stamp: " << timestamp.error();
-      return;
-    }
-
     auto version = get_storage_file_version(flag_val);
     if (!version.ok()) {
       status = base::Error() << "failed to get file version: " << version.error();
+      return;
+    }
+
+    auto digest = GetFilesDigest({package_map, flag_map, flag_val});
+    if (!digest.ok()) {
+      status = base::Error() << "failed to get files digest: " << digest.error();
       return;
     }
 
@@ -75,7 +75,7 @@ namespace android {
         root_dir + "/boot/" + container + ".val";
     storage_record_.boot_flag_info =
         root_dir + "/boot/" + container + ".info";
-    storage_record_.timestamp = *timestamp;
+    storage_record_.digest= *digest;
 
     // copy package map file
     auto copy_result = CopyFile(package_map, storage_record_.persist_package_map, 0444);
@@ -142,7 +142,7 @@ namespace android {
         root_dir + "/boot/" + pb.container() + ".val";
     storage_record_.boot_flag_info =
         root_dir + "/boot/" + pb.container() + ".info";
-    storage_record_.timestamp = pb.timestamp();
+    storage_record_.digest = pb.digest();
   }
 
   /// move constructor

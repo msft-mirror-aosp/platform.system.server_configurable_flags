@@ -60,7 +60,7 @@ static Result<StorageRequestMessages> receiveMessage(int client_fd) {
     auto chunk_bytes =
         TEMP_FAILURE_RETRY(recv(client_fd, size_buffer + size_bytes_received,
                                 4 - size_bytes_received, 0));
-    if (chunk_bytes < 0) {
+    if (chunk_bytes <= 0) {
       return ErrnoError() << "received error polling for message size";
     }
     size_bytes_received += chunk_bytes;
@@ -75,7 +75,7 @@ static Result<StorageRequestMessages> receiveMessage(int client_fd) {
     auto chunk_bytes = TEMP_FAILURE_RETRY(
         recv(client_fd, payload_buffer + payload_bytes_received,
              payload_size - payload_bytes_received, 0));
-    if (chunk_bytes < 0) {
+    if (chunk_bytes <= 0) {
       return ErrnoError() << "received error polling for message payload";
     }
     payload_bytes_received += chunk_bytes;
@@ -104,20 +104,27 @@ static Result<void> sendMessage(int client_fd, const StorageReturnMessages& msg)
   bytes[2] = (msg_size >> 8) & 0xFF;
   bytes[3] = (msg_size >> 0) & 0xFF;
 
-  auto num_bytes = TEMP_FAILURE_RETRY(send(client_fd, bytes, 4, 0));
-  if (num_bytes < 0) {
-    return ErrnoError() << "send() failed for return msg size";
-  } else if (num_bytes != 4) {
-    return Error() << "send() failed for return msg size, sent " << num_bytes
-                   << " bytes expect 4 bytes";
+  int payload_bytes_sent = 0;
+  while (payload_bytes_sent < 4) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        send(client_fd, bytes + payload_bytes_sent,
+             4 - payload_bytes_sent, 0));
+    if (chunk_bytes <= 0) {
+      return ErrnoError() << "send() failed for return msg size";
+    }
+    payload_bytes_sent += chunk_bytes;
   }
 
-  num_bytes = TEMP_FAILURE_RETRY(send(client_fd, content.c_str(), content.size(), 0));
-  if (num_bytes < 0) {
-    return ErrnoError() << "send() failed for return msg";
-  } else if (num_bytes != content.size()) {
-    return Error() << "send() failed for return msg, sent " << num_bytes
-                   << " bytes expect " << content.size() << " bytes";
+  payload_bytes_sent = 0;
+  const char* payload_buffer = content.c_str();
+  while (payload_bytes_sent < content.size()) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        send(client_fd, payload_buffer + payload_bytes_sent,
+             content.size() - payload_bytes_sent, 0));
+    if (chunk_bytes < 0) {
+      return ErrnoError() << "send() failed for return msg";
+    }
+    payload_bytes_sent += chunk_bytes;
   }
 
   return {};
