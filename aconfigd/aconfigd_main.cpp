@@ -19,37 +19,122 @@
 #include <cutils/sockets.h>
 #include <sys/un.h>
 
+#include "com_android_aconfig_new_storage.h"
 #include "aconfigd.h"
 #include "aconfigd_util.h"
 
 using namespace android::aconfigd;
+using namespace android::base;
 
-static int aconfigd_init() {
-  auto init_result = InitializeInMemoryStorageRecords();
+static int aconfigd_platform_init() {
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializePlatformStorage();
   if (!init_result.ok()) {
-    LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
-               << init_result.error();
-    return 1;
-  }
-
-  // clear boot dir to start fresh at each boot
-  auto remove_result = RemoveFilesInDir("/metadata/aconfig/boot");
-  if (!remove_result.ok()) {
-    LOG(ERROR) <<"failed to clear boot dir: " << remove_result.error();
-    return 1;
-  }
-
-  auto plat_result = InitializePlatformStorage();
-  if (!plat_result.ok()) {
-    LOG(ERROR) << "failed to initialize storage records: " << plat_result.error();
+    LOG(ERROR) << "failed to initialize platform storage records: " << init_result.error();
     return 1;
   }
 
   return 0;
 }
 
+static int aconfigd_mainline_init() {
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeMainlineStorage();
+  if (!init_result.ok()) {
+    LOG(ERROR) << "failed to initialize mainline storage records: " << init_result.error();
+    return 1;
+  }
+
+  return 0;
+}
+
+/// receive storage requests from socket
+static Result<StorageRequestMessages> receiveMessage(int client_fd) {
+  unsigned char size_buffer[4] = {};
+  int size_bytes_received = 0;
+  while (size_bytes_received < 4) {
+    auto chunk_bytes =
+        TEMP_FAILURE_RETRY(recv(client_fd, size_buffer + size_bytes_received,
+                                4 - size_bytes_received, 0));
+    if (chunk_bytes <= 0) {
+      return ErrnoError() << "received error polling for message size";
+    }
+    size_bytes_received += chunk_bytes;
+  }
+
+  uint32_t payload_size = uint32_t(
+      size_buffer[0]<<24 | size_buffer[1]<<16 | size_buffer[2]<<8 | size_buffer[3]);
+
+  char payload_buffer[payload_size];
+  int payload_bytes_received = 0;
+  while (payload_bytes_received < payload_size) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        recv(client_fd, payload_buffer + payload_bytes_received,
+             payload_size - payload_bytes_received, 0));
+    if (chunk_bytes <= 0) {
+      return ErrnoError() << "received error polling for message payload";
+    }
+    payload_bytes_received += chunk_bytes;
+  }
+
+  auto msg = std::string(payload_buffer, payload_bytes_received);
+
+  auto requests = StorageRequestMessages{};
+  if (!requests.ParseFromString(msg)) {
+      return Error() << "Could not parse message from aconfig storage init socket";
+  }
+  return requests;
+}
+
+/// send return acknowledgement
+static Result<void> sendMessage(int client_fd, const StorageReturnMessages& msg) {
+  auto content = std::string();
+  if (!msg.SerializeToString(&content)) {
+    return Error() << "failed to serialize return messages to string";
+  }
+
+  unsigned char bytes[4];
+  uint32_t msg_size = content.size();
+  bytes[0] = (msg_size >> 24) & 0xFF;
+  bytes[1] = (msg_size >> 16) & 0xFF;
+  bytes[2] = (msg_size >> 8) & 0xFF;
+  bytes[3] = (msg_size >> 0) & 0xFF;
+
+  int payload_bytes_sent = 0;
+  while (payload_bytes_sent < 4) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        send(client_fd, bytes + payload_bytes_sent,
+             4 - payload_bytes_sent, 0));
+    if (chunk_bytes <= 0) {
+      return ErrnoError() << "send() failed for return msg size";
+    }
+    payload_bytes_sent += chunk_bytes;
+  }
+
+  payload_bytes_sent = 0;
+  const char* payload_buffer = content.c_str();
+  while (payload_bytes_sent < content.size()) {
+    auto chunk_bytes = TEMP_FAILURE_RETRY(
+        send(client_fd, payload_buffer + payload_bytes_sent,
+             content.size() - payload_bytes_sent, 0));
+    if (chunk_bytes < 0) {
+      return ErrnoError() << "send() failed for return msg";
+    }
+    payload_bytes_sent += chunk_bytes;
+  }
+
+  return {};
+}
+
 static int aconfigd_start() {
-  auto init_result = InitializeInMemoryStorageRecords();
+  auto aconfigd = Aconfigd(kAconfigdRootDir,
+                           kPersistentStorageRecordsFileName);
+
+  auto init_result = aconfigd.InitializeInMemoryStorageRecords();
   if (!init_result.ok()) {
     LOG(ERROR) << "Failed to initialize persistent storage records in memory: "
                << init_result.error();
@@ -79,50 +164,53 @@ static int aconfigd_start() {
         aconfigd_fd, reinterpret_cast<sockaddr*>(&addr), &addr_len, SOCK_CLOEXEC));
     if (client_fd == -1) {
       PLOG(ERROR) << "failed to establish connection";
-      break;
+      continue;
     }
-    LOG(INFO) << "received a client requests";
+    LOG(INFO) << "received client requests";
 
-    char buffer[kBufferSize] = {};
-    auto num_bytes = TEMP_FAILURE_RETRY(recv(client_fd, buffer, sizeof(buffer), 0));
-    if (num_bytes < 0) {
-      PLOG(ERROR) << "failed to read from aconfigd socket";
-      break;
-    } else if (num_bytes == 0) {
-      LOG(ERROR) << "failed to read from aconfigd socket, empty message";
-      break;
-    }
-    auto msg = std::string(buffer, num_bytes);
-
-    auto handle_result = HandleSocketRequest(msg);
-    if (!handle_result.ok()) {
-      LOG(ERROR) << "failed to handle socket request: " << handle_result.error();
+    auto requests = receiveMessage(client_fd.get());
+    if (!requests.ok()) {
+      LOG(ERROR) << requests.error();
+      continue;
     }
 
-    auto return_msg =
-        std::string(handle_result.ok() ? "" : handle_result.error().message());
-    auto num = TEMP_FAILURE_RETRY(
-        send(client_fd, return_msg.c_str(), return_msg.size(), 0));
-    if (num != static_cast<long>(return_msg.size())) {
-      PLOG(ERROR) << "failed to send return message";
+    auto return_messages = StorageReturnMessages();
+    for (auto& request : requests->msgs()) {
+      auto* return_msg = return_messages.add_msgs();
+      auto result = aconfigd.HandleSocketRequest(request, *return_msg);
+      if (!result.ok()) {
+        auto* errmsg = return_msg->mutable_error_message();
+        *errmsg = result.error().message();
+        LOG(ERROR) << "Failed to handle socket request: " << *errmsg;
+      } else {
+        LOG(INFO) << "Successfully handled socket request";
+      }
+    }
+
+    auto result = sendMessage(client_fd.get(), return_messages);
+    if (!result.ok()) {
+      LOG(ERROR) << result.error();
     }
   }
 
   return 1;
-
 }
 
 int main(int argc, char** argv) {
+  if (!com::android::aconfig_new_storage::enable_aconfig_storage_daemon()) {
+    return 0;
+  }
+
   android::base::InitLogging(argv, &android::base::KernelLogger);
 
-  if (argc > 2 || (argc == 2 && strcmp("--initialize", argv[1]) != 0)) {
+  if (argc == 1) {
+    return aconfigd_start();
+  } else if (argc == 2 && strcmp(argv[1], "--platform_init") == 0) {
+    return aconfigd_platform_init();
+  } else if (argc == 2 && strcmp(argv[1], "--mainline_init") == 0) {
+    return aconfigd_mainline_init();
+  } else {
     LOG(ERROR) << "invalid aconfigd command";
     return 1;
   }
-
-  if (argc == 2 && strcmp("--initialize", argv[1]) == 0) {
-    return aconfigd_init();
-  }
-
-  return aconfigd_start();
 }
