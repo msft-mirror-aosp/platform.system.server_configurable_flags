@@ -16,89 +16,36 @@
 
 package android.aconfigd.test;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import android.aconfigd.Aconfigd.StorageRequestMessage;
+import android.aconfigd.Aconfigd.StorageRequestMessages;
 import android.aconfigd.Aconfigd.StorageReturnMessage;
 import android.aconfigd.Aconfigd.StorageReturnMessages;
-import android.aconfigd.AconfigdFlagQueryReturnMessage;
+import android.aconfigd.AconfigdClientSocket;
+import android.aconfigd.AconfigdFlagInfo;
 import android.aconfigd.AconfigdJavaUtils;
-import android.net.LocalServerSocket;
-import android.net.LocalSocket;
-import android.net.LocalSocketAddress;
-import android.util.proto.ProtoInputStream;
 import android.util.proto.ProtoOutputStream;
 
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 @RunWith(JUnit4.class)
 public class AconfigdJavaUtilsTest {
 
-    private String mTestAddress = "android.aconfigd.test";
-    private LocalServerSocket mLocalServer;
-    private LocalSocket mClientLocalSocket;
-    private LocalSocket mServerLocalSocket;
-
-    @Before
-    public void setUp() throws Exception {
-        mLocalServer = new LocalServerSocket(mTestAddress);
-        mClientLocalSocket = new LocalSocket();
-        mClientLocalSocket.connect(new LocalSocketAddress(mTestAddress));
-        mServerLocalSocket = mLocalServer.accept();
-    }
-
-    @After
-    public void tearDown() throws Exception {
-        mServerLocalSocket.close();
-        mClientLocalSocket.close();
-        mLocalServer.close();
-    }
-
     @Test
-    public void testSendAconfigdRequests() throws Exception {
-        long fieldFlags =
-                ProtoOutputStream.FIELD_COUNT_SINGLE | ProtoOutputStream.FIELD_TYPE_STRING;
-        long fieldId = ProtoOutputStream.makeFieldId(1, fieldFlags);
-
-        // client request message
-        String testReqMessage = "request test";
-        ProtoOutputStream request = new ProtoOutputStream();
-        request.write(fieldId, testReqMessage);
-
-        // server return message
-        String testRevMessage = "received test";
-        ProtoOutputStream serverReturn = new ProtoOutputStream();
-        serverReturn.write(fieldId, testRevMessage);
-        DataOutputStream outputStream = new DataOutputStream(mServerLocalSocket.getOutputStream());
-        outputStream.writeInt(serverReturn.getRawSize());
-        outputStream.write(serverReturn.getBytes());
-
-        // validate client received
-        ProtoInputStream clientRev =
-                AconfigdJavaUtils.sendAconfigdRequests(mClientLocalSocket, request);
-        clientRev.nextField();
-        assertEquals(testRevMessage, clientRev.readString(fieldId));
-
-        // validate server received
-        DataInputStream inputStream = new DataInputStream(mServerLocalSocket.getInputStream());
-        inputStream.readInt();
-        ProtoInputStream serverRev = new ProtoInputStream(inputStream);
-        serverRev.nextField();
-        assertEquals(testReqMessage, serverRev.readString(fieldId));
-    }
-
-    @Test
-    public void testGetFlagsValueInNewStorage() throws Exception {
-        ProtoOutputStream serverReturn = new ProtoOutputStream();
-
+    public void testListFlagsValueInNewStorage_singleFlag() throws Exception {
         String packageName = "android.acondigd.test";
         String flagName = "test_flag";
         String serverValue = "";
@@ -107,42 +54,14 @@ public class AconfigdJavaUtilsTest {
         String defaultValue = "true";
         boolean hasServerOverride = false;
         boolean isReadWrite = false;
-        boolean hashLocalOverride = false;
+        boolean hasLocalOverride = false;
 
-        long msgsToken = serverReturn.start(StorageReturnMessages.MSGS);
-        long listToken = serverReturn.start(StorageReturnMessage.LIST_STORAGE_MESSAGE);
-        long flagToken = serverReturn.start(StorageReturnMessage.ListStorageReturnMessage.FLAGS);
-        long queryToken = serverReturn.start(StorageReturnMessage.FLAG_QUERY_MESSAGE);
-        serverReturn.write(StorageReturnMessage.FlagQueryReturnMessage.PACKAGE_NAME, packageName);
-        serverReturn.write(StorageReturnMessage.FlagQueryReturnMessage.FLAG_NAME, flagName);
-        serverReturn.write(
-                StorageReturnMessage.FlagQueryReturnMessage.SERVER_FLAG_VALUE, serverValue);
-        serverReturn.write(
-                StorageReturnMessage.FlagQueryReturnMessage.LOCAL_FLAG_VALUE, localValue);
-        serverReturn.write(StorageReturnMessage.FlagQueryReturnMessage.BOOT_FLAG_VALUE, bootValue);
-        serverReturn.write(
-                StorageReturnMessage.FlagQueryReturnMessage.DEFAULT_FLAG_VALUE, defaultValue);
-        serverReturn.write(
-                StorageReturnMessage.FlagQueryReturnMessage.HAS_SERVER_OVERRIDE, hasServerOverride);
-        serverReturn.write(StorageReturnMessage.FlagQueryReturnMessage.IS_READWRITE, isReadWrite);
-        serverReturn.write(
-                StorageReturnMessage.FlagQueryReturnMessage.HAS_LOCAL_OVERRIDE, hashLocalOverride);
-        serverReturn.end(queryToken);
-        serverReturn.end(flagToken);
-        serverReturn.end(listToken);
-        serverReturn.end(msgsToken);
-
-        DataOutputStream outputStream = new DataOutputStream(mServerLocalSocket.getOutputStream());
-        outputStream.writeInt(serverReturn.getRawSize());
-        outputStream.write(serverReturn.getBytes());
-
-        AconfigdFlagQueryReturnMessage.Builder builder =
-                new AconfigdFlagQueryReturnMessage.Builder();
-        AconfigdFlagQueryReturnMessage expectedRet =
-                builder.setBootFlagValue(bootValue)
+        AconfigdFlagInfo expectedRev =
+                AconfigdFlagInfo.newBuilder()
+                        .setBootFlagValue(bootValue)
                         .setDefaultFlagValue(defaultValue)
                         .setFlagName(flagName)
-                        .setHashLocalOverride(hashLocalOverride)
+                        .setHasLocalOverride(hasLocalOverride)
                         .setHasServerOverride(hasServerOverride)
                         .setIsReadWrite(isReadWrite)
                         .setLocalFlagValue(localValue)
@@ -150,9 +69,186 @@ public class AconfigdJavaUtilsTest {
                         .setServerFlagValue(serverValue)
                         .build();
 
-        Map<String, AconfigdFlagQueryReturnMessage> flagMap =
-                AconfigdJavaUtils.listFlagsValueInNewStorage(mClientLocalSocket);
-        assertTrue(flagMap.containsKey(expectedRet.getFullFlagName()));
-        assertEquals(expectedRet, flagMap.get(expectedRet.getFullFlagName()));
+        ProtoOutputStream serverReturn = writeListFlagsRequest(Arrays.asList(expectedRev));
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(serverReturn.getRawSize());
+        buffer.write(serverReturn.getBytes(), 0, serverReturn.getRawSize());
+
+        AconfigdClientSocket localSocket =
+                new FakeAconfigdClientSocketImpl(
+                        input -> new ByteArrayInputStream(buffer.toByteArray()));
+
+        Map<String, AconfigdFlagInfo> flagMap =
+                AconfigdJavaUtils.listFlagsValueInNewStorage(localSocket);
+        assertTrue(flagMap.containsKey(expectedRev.getFullFlagName()));
+        assertEquals(expectedRev, flagMap.get(expectedRev.getFullFlagName()));
+    }
+
+    @Test
+    public void testListFlagsValueInNewStorage_multiFlags() throws Exception {
+        String packageName = "android.acondigd.test";
+        String flagName1 = "test_flag1";
+        String flagName2 = "test_flag2";
+        String serverValue = "";
+        String localValue = "";
+        String bootValue = "true";
+        String defaultValue = "true";
+        boolean hasServerOverride = false;
+        boolean isReadWrite = false;
+        boolean hasLocalOverride = false;
+
+        AconfigdFlagInfo expectedRev1 =
+                AconfigdFlagInfo.newBuilder()
+                        .setBootFlagValue(bootValue)
+                        .setDefaultFlagValue(defaultValue)
+                        .setFlagName(flagName1)
+                        .setHasLocalOverride(hasLocalOverride)
+                        .setHasServerOverride(hasServerOverride)
+                        .setIsReadWrite(isReadWrite)
+                        .setLocalFlagValue(localValue)
+                        .setPackageName(packageName)
+                        .setServerFlagValue(serverValue)
+                        .build();
+
+        AconfigdFlagInfo expectedRev2 =
+                AconfigdFlagInfo.newBuilder()
+                        .setBootFlagValue(bootValue)
+                        .setDefaultFlagValue(defaultValue)
+                        .setFlagName(flagName2)
+                        .setHasLocalOverride(hasLocalOverride)
+                        .setHasServerOverride(hasServerOverride)
+                        .setIsReadWrite(isReadWrite)
+                        .setLocalFlagValue(localValue)
+                        .setPackageName(packageName)
+                        .setServerFlagValue(serverValue)
+                        .build();
+
+        ProtoOutputStream serverReturn =
+                writeListFlagsRequest(Arrays.asList(expectedRev1, expectedRev2));
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(serverReturn.getRawSize());
+        buffer.write(serverReturn.getBytes(), 0, serverReturn.getRawSize());
+
+        AconfigdClientSocket localSocket =
+                new FakeAconfigdClientSocketImpl(
+                        input -> new ByteArrayInputStream(buffer.toByteArray()));
+
+        Map<String, AconfigdFlagInfo> flagMap =
+                AconfigdJavaUtils.listFlagsValueInNewStorage(localSocket);
+        assertTrue(flagMap.containsKey(expectedRev1.getFullFlagName()));
+        assertTrue(flagMap.containsKey(expectedRev2.getFullFlagName()));
+        assertEquals(expectedRev1, flagMap.get(expectedRev1.getFullFlagName()));
+        assertEquals(expectedRev2, flagMap.get(expectedRev2.getFullFlagName()));
+    }
+
+    @Test
+    public void testListFlagsValueInNewStorage_errorMessage() throws Exception {
+        ProtoOutputStream serverReturn = new ProtoOutputStream();
+        String expectErrorMessage = "invalid";
+        long msgsToken = serverReturn.start(StorageReturnMessages.MSGS);
+        serverReturn.write(StorageReturnMessage.ERROR_MESSAGE, expectErrorMessage);
+        serverReturn.end(msgsToken);
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(serverReturn.getRawSize());
+        buffer.write(serverReturn.getBytes(), 0, serverReturn.getRawSize());
+
+        AconfigdClientSocket localSocket =
+                new FakeAconfigdClientSocketImpl(
+                        input -> new ByteArrayInputStream(buffer.toByteArray()));
+
+        Map<String, AconfigdFlagInfo> flagMap =
+                AconfigdJavaUtils.listFlagsValueInNewStorage(localSocket);
+        assertTrue(flagMap.isEmpty());
+    }
+
+    @Test
+    public void testListFlagsValueInNewStorage_checkRequest() throws Exception {
+
+        ProtoOutputStream expectRequests = new ProtoOutputStream();
+        long msgsToken = expectRequests.start(StorageRequestMessages.MSGS);
+        long msgToken = expectRequests.start(StorageRequestMessage.LIST_STORAGE_MESSAGE);
+        expectRequests.write(StorageRequestMessage.ListStorageMessage.ALL, 1);
+        expectRequests.end(msgToken);
+        expectRequests.end(msgsToken);
+
+        ProtoOutputStream serverReturn = new ProtoOutputStream();
+        String expectErrorMessage = "invalid";
+        msgsToken = serverReturn.start(StorageReturnMessages.MSGS);
+        serverReturn.write(StorageReturnMessage.ERROR_MESSAGE, expectErrorMessage);
+        serverReturn.end(msgsToken);
+
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream(serverReturn.getRawSize());
+        buffer.write(serverReturn.getBytes(), 0, serverReturn.getRawSize());
+
+        AconfigdClientSocket localSocket =
+                new FakeAconfigdClientSocketImpl(
+                        input -> {
+                            assertArrayEquals(expectRequests.getBytes(), input);
+                            return new ByteArrayInputStream(buffer.toByteArray());
+                        });
+
+        Map<String, AconfigdFlagInfo> flagMap =
+                AconfigdJavaUtils.listFlagsValueInNewStorage(localSocket);
+        assertTrue(flagMap.isEmpty());
+    }
+
+    private ProtoOutputStream writeListFlagsRequest(List<AconfigdFlagInfo> flags) {
+        ProtoOutputStream serverReturn = new ProtoOutputStream();
+        long msgsToken = serverReturn.start(StorageReturnMessages.MSGS);
+        long listToken = serverReturn.start(StorageReturnMessage.LIST_STORAGE_MESSAGE);
+
+        for (AconfigdFlagInfo flag : flags) {
+            long flagToken =
+                    serverReturn.start(StorageReturnMessage.ListStorageReturnMessage.FLAGS);
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.PACKAGE_NAME,
+                    flag.getPackageName());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.FLAG_NAME, flag.getFlagName());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.SERVER_FLAG_VALUE,
+                    flag.getServerFlagValue());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.LOCAL_FLAG_VALUE,
+                    flag.getLocalFlagValue());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.BOOT_FLAG_VALUE,
+                    flag.getBootFlagValue());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.DEFAULT_FLAG_VALUE,
+                    flag.getDefaultFlagValue());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.HAS_SERVER_OVERRIDE,
+                    flag.getHasServerOverride());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.IS_READWRITE,
+                    flag.getIsReadWrite());
+            serverReturn.write(
+                    StorageReturnMessage.FlagQueryReturnMessage.HAS_LOCAL_OVERRIDE,
+                    flag.getHasLocalOverride());
+            serverReturn.end(flagToken);
+        }
+
+        serverReturn.end(listToken);
+        serverReturn.end(msgsToken);
+        return serverReturn;
+    }
+
+    private class FakeAconfigdClientSocketImpl implements AconfigdClientSocket {
+        private Function<byte[], InputStream> mSendFunc;
+
+        FakeAconfigdClientSocketImpl(Function<byte[], InputStream> sendFunc) {
+            mSendFunc = sendFunc;
+        }
+
+        @Override
+        public InputStream send(byte[] requests) {
+            return mSendFunc.apply(requests);
+        }
+
+        @Override
+        public void close() {
+            return;
+        }
     }
 }

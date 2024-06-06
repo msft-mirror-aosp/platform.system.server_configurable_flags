@@ -20,14 +20,12 @@ import android.aconfigd.Aconfigd.StorageRequestMessage;
 import android.aconfigd.Aconfigd.StorageRequestMessages;
 import android.aconfigd.Aconfigd.StorageReturnMessage;
 import android.aconfigd.Aconfigd.StorageReturnMessages;
-import android.net.LocalSocket;
 import android.util.Slog;
 import android.util.proto.ProtoInputStream;
 import android.util.proto.ProtoOutputStream;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
@@ -37,6 +35,10 @@ import java.util.Map;
 public class AconfigdJavaUtils {
 
     private static String TAG = "AconfigdJavaUtils";
+
+    public static AconfigdClientSocket getAconfigdClientSocket() {
+        return new AconfigdClientSocketImpl();
+    }
 
     /**
      * serialize a storage reset request proto via proto output stream
@@ -77,10 +79,11 @@ public class AconfigdJavaUtils {
     /**
      * deserialize a flag input proto stream and log
      *
-     * @param proto
+     * @param inputStream
      * @hide
      */
-    public static void parseAndLogAconfigdReturn(ProtoInputStream proto) throws IOException {
+    public static void parseAndLogAconfigdReturn(InputStream inputStream) throws IOException {
+        ProtoInputStream proto = new ProtoInputStream(inputStream);
         while (true) {
             switch (proto.nextField()) {
                 case (int) StorageReturnMessages.MSGS:
@@ -116,47 +119,6 @@ public class AconfigdJavaUtils {
     }
 
     /**
-     * send request to aconfigd
-     *
-     * @param requests stream of requests
-     * @hide
-     */
-    public static ProtoInputStream sendAconfigdRequests(
-            LocalSocket localSocket, ProtoOutputStream requests) {
-        DataInputStream inputStream = null;
-        DataOutputStream outputStream = null;
-        try {
-            inputStream = new DataInputStream(localSocket.getInputStream());
-            outputStream = new DataOutputStream(localSocket.getOutputStream());
-        } catch (IOException ioe) {
-            Slog.e(TAG, "failed to get local socket iostreams", ioe);
-            return null;
-        }
-
-        // send requests
-        try {
-            byte[] requests_bytes = requests.getBytes();
-            outputStream.writeInt(requests_bytes.length);
-            outputStream.write(requests_bytes, 0, requests_bytes.length);
-            Slog.i(TAG, " requests sent to aconfigd");
-        } catch (IOException ioe) {
-            Slog.e(TAG, "failed to send requests to aconfigd", ioe);
-            return null;
-        }
-
-        // read return
-        try {
-            int num_bytes = inputStream.readInt();
-            ProtoInputStream returns = new ProtoInputStream(inputStream);
-            Slog.i(TAG, "received " + num_bytes + " bytes back from aconfigd");
-            return returns;
-        } catch (IOException ioe) {
-            Slog.e(TAG, "failed to read requests return from aconfigd", ioe);
-            return null;
-        }
-    }
-
-    /**
      * this method will new flag value into new storage, and stage the new values
      *
      * @param propsToStage the map of flags <namespace, <flagName, value>>
@@ -164,7 +126,7 @@ public class AconfigdJavaUtils {
      * @hide
      */
     public static void stageFlagsInNewStorage(
-            LocalSocket localSocket,
+            AconfigdClientSocket localSocket,
             Map<String, Map<String, String>> propsToStage,
             boolean isLocal) {
         // write aconfigd requests proto to proto output stream
@@ -192,7 +154,7 @@ public class AconfigdJavaUtils {
         }
 
         // send requests to aconfigd and obtain the return
-        ProtoInputStream returns = sendAconfigdRequests(localSocket, requests);
+        InputStream returns = localSocket.send(requests.getBytes());
 
         // deserialize back using proto input stream
         try {
@@ -203,28 +165,56 @@ public class AconfigdJavaUtils {
     }
 
     /** @hide */
-    public static Map<String, AconfigdFlagQueryReturnMessage> listFlagsValueInNewStorage(
-            LocalSocket localSocket) {
+    public static Map<String, AconfigdFlagInfo> listFlagsValueInNewStorage(
+            AconfigdClientSocket localSocket) {
 
         ProtoOutputStream requests = new ProtoOutputStream();
         long msgsToken = requests.start(StorageRequestMessages.MSGS);
         long msgToken = requests.start(StorageRequestMessage.LIST_STORAGE_MESSAGE);
-        requests.write(StorageRequestMessage.ListStorageMessage.ALL, true);
+        requests.write(StorageRequestMessage.ListStorageMessage.ALL, 1);
         requests.end(msgToken);
         requests.end(msgsToken);
 
-        ProtoInputStream res = sendAconfigdRequests(localSocket, requests);
-        Map<String, AconfigdFlagQueryReturnMessage> flagMap = new HashMap<>();
+        InputStream inputStream = localSocket.send(requests.getBytes());
+        ProtoInputStream res = new ProtoInputStream(inputStream);
+        Map<String, AconfigdFlagInfo> flagMap = new HashMap<>();
         Deque<Long> tokens = new ArrayDeque<>();
         try {
             while (res.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
-                tokens.push(res.start(res.getFieldNumber()));
-                if (res.getFieldNumber() != (int) StorageReturnMessage.FLAG_QUERY_MESSAGE) {
-                    continue;
+                switch (res.getFieldNumber()) {
+                    case (int) StorageReturnMessages.MSGS:
+                        tokens.push(res.start(StorageReturnMessages.MSGS));
+                        break;
+                    case (int) StorageReturnMessage.LIST_STORAGE_MESSAGE:
+                        tokens.push(res.start(StorageReturnMessage.LIST_STORAGE_MESSAGE));
+                        while (res.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
+                            switch (res.getFieldNumber()) {
+                                case (int) StorageReturnMessage.ListStorageReturnMessage.FLAGS:
+                                    tokens.push(
+                                            res.start(
+                                                    StorageReturnMessage.ListStorageReturnMessage
+                                                            .FLAGS));
+                                    AconfigdFlagInfo flagQueryReturnMessage = readFromProto(res);
+                                    flagMap.put(
+                                            flagQueryReturnMessage.getFullFlagName(),
+                                            flagQueryReturnMessage);
+                                    res.end(tokens.pop());
+                                    break;
+                                default:
+                                    Slog.w(
+                                            TAG,
+                                            "Could not read undefined field: "
+                                                    + res.getFieldNumber());
+                            }
+                        }
+                        break;
+                    case (int) StorageReturnMessage.ERROR_MESSAGE:
+                        String errmsg = res.readString(StorageReturnMessage.ERROR_MESSAGE);
+                        Slog.w(TAG, "list request failed: " + errmsg);
+                        break;
+                    default:
+                        Slog.w(TAG, "Could not read undefined field: " + res.getFieldNumber());
                 }
-                AconfigdFlagQueryReturnMessage flagQueryReturnMessage = readFromProto(res);
-                res.end(tokens.pop());
-                flagMap.put(flagQueryReturnMessage.getFullFlagName(), flagQueryReturnMessage);
             }
         } catch (IOException e) {
             Slog.e(TAG, "Failed to read protobuf input stream.", e);
@@ -236,10 +226,9 @@ public class AconfigdJavaUtils {
         return flagMap;
     }
 
-    private static AconfigdFlagQueryReturnMessage readFromProto(ProtoInputStream protoInputStream)
+    private static AconfigdFlagInfo readFromProto(ProtoInputStream protoInputStream)
             throws IOException {
-        AconfigdFlagQueryReturnMessage.Builder builder =
-                new AconfigdFlagQueryReturnMessage.Builder();
+        AconfigdFlagInfo.Builder builder = new AconfigdFlagInfo.Builder();
         while (protoInputStream.nextField() != ProtoInputStream.NO_MORE_FIELDS) {
             switch (protoInputStream.getFieldNumber()) {
                 case (int) StorageReturnMessage.FlagQueryReturnMessage.PACKAGE_NAME:
@@ -280,7 +269,7 @@ public class AconfigdJavaUtils {
                                             .HAS_SERVER_OVERRIDE));
                     break;
                 case (int) StorageReturnMessage.FlagQueryReturnMessage.HAS_LOCAL_OVERRIDE:
-                    builder.setHashLocalOverride(
+                    builder.setHasLocalOverride(
                             protoInputStream.readBoolean(
                                     StorageReturnMessage.FlagQueryReturnMessage
                                             .HAS_LOCAL_OVERRIDE));
