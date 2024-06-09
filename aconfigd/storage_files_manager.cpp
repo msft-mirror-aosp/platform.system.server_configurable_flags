@@ -147,11 +147,11 @@ namespace android {
     bool new_container = !HasContainer(container);
     bool update_existing_container = false;
     if (!new_container) {
-      auto timestamp = GetFileTimeStamp(flag_val);
-      RETURN_IF_ERROR(timestamp, "Failed to get timestamp of " + flag_val);
+      auto digest = GetFilesDigest({package_map, flag_map, flag_val});
+      RETURN_IF_ERROR(digest, "Failed to get digest for " + container);
       auto storage_files = GetStorageFiles(container);
       RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
-      if ((**storage_files).GetStorageRecord().timestamp != *timestamp) {
+      if ((**storage_files).GetStorageRecord().digest != *digest) {
         update_existing_container = true;
       }
     }
@@ -256,7 +256,7 @@ namespace android {
       record_pb->set_package_map(record.package_map);
       record_pb->set_flag_map(record.flag_map);
       record_pb->set_flag_val(record.flag_val);
-      record_pb->set_timestamp(record.timestamp);
+      record_pb->set_digest(record.digest);
     }
     return WritePbToFile<PersistStorageRecords>(records_pb, file_name);
   }
