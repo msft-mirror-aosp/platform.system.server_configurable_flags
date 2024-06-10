@@ -378,8 +378,8 @@ TEST_F(AconfigdTest, add_new_storage) {
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  auto timestamp = GetFileTimeStamp(c_mock.flag_val);
-  ASSERT_TRUE(timestamp.ok());
+  auto digest = GetFilesDigest({c_mock.package_map, c_mock.flag_map, c_mock.flag_val});
+  ASSERT_TRUE(digest.ok());
 
   // verify the record exists in persist records pb
   auto persist_records_pb = PersistStorageRecords();
@@ -395,7 +395,7 @@ TEST_F(AconfigdTest, add_new_storage) {
       ASSERT_EQ(entry.package_map(), c_mock.package_map);
       ASSERT_EQ(entry.flag_map(), c_mock.flag_map);
       ASSERT_EQ(entry.flag_val(), c_mock.flag_val);
-      ASSERT_EQ(entry.timestamp(), *timestamp);
+      ASSERT_EQ(entry.digest(), *digest);
       break;
     }
   }
@@ -434,7 +434,6 @@ TEST_F(AconfigdTest, container_update_in_ota) {
                                      &boot_flag_info_content));
 
   // mock an ota container update
-  std::this_thread::sleep_for(std::chrono::milliseconds{10});
   ASSERT_TRUE(CopyFile(updated_package_map_, c_mock.package_map, 0444).ok());
   ASSERT_TRUE(CopyFile(updated_flag_map_, c_mock.flag_map, 0444).ok());
   ASSERT_TRUE(CopyFile(updated_flag_val_, c_mock.flag_val, 0444).ok());
@@ -444,8 +443,8 @@ TEST_F(AconfigdTest, container_update_in_ota) {
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  auto timestamp = GetFileTimeStamp(c_mock.flag_val);
-  ASSERT_TRUE(timestamp.ok());
+  auto digest = GetFilesDigest({c_mock.package_map, c_mock.flag_map, c_mock.flag_val});
+  ASSERT_TRUE(digest.ok());
 
   // verify the record exists in persist records pb
   auto persist_records_pb = PersistStorageRecords();
@@ -461,7 +460,7 @@ TEST_F(AconfigdTest, container_update_in_ota) {
       ASSERT_EQ(entry.package_map(), c_mock.package_map);
       ASSERT_EQ(entry.flag_map(), c_mock.flag_map);
       ASSERT_EQ(entry.flag_val(), c_mock.flag_val);
-      ASSERT_EQ(entry.timestamp(), *timestamp);
+      ASSERT_EQ(entry.digest(), *digest);
       break;
     }
   }
