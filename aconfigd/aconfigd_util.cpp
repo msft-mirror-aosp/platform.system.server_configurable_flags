@@ -17,7 +17,12 @@
 #include <memory>
 #include <sys/sendfile.h>
 #include <dirent.h>
+#include <stdio.h>
+#include <openssl/sha.h>
+#include <fstream>
+#include <sstream>
 
+#include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 
@@ -105,6 +110,37 @@ bool FileExists(const std::string& file) {
 bool FileNonZeroSize(const std::string& file) {
   struct stat st;
   return stat(file.c_str(), &st) == 0 ? st.st_size > 0 : false;
+}
+
+Result<std::string> GetFilesDigest(const std::vector<std::string>& files) {
+  SHA512_CTX ctx;
+  SHA512_Init(&ctx);
+
+  for (const auto& file : files) {
+    std::ifstream stream(file, std::ios::binary);
+    if (stream.bad()) {
+      return Error() << "Failed to open " << file;
+    }
+
+    char buf[1024];
+    while (!stream.eof()) {
+      stream.read(buf, 1024);
+      if (stream.bad()) {
+        return Error() << "Failed to read " << file;
+      }
+      int bytes_read = stream.gcount();
+      SHA512_Update(&ctx, buf, bytes_read);
+    }
+  }
+
+  uint8_t hash[SHA512_DIGEST_LENGTH];
+  SHA512_Final(hash, &ctx);
+  std::stringstream ss;
+  ss << std::hex;
+  for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+    ss << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+  }
+  return ss.str();
 }
 
 } // namespace aconfig
