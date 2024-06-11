@@ -271,10 +271,16 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a" << (msg.is_local() ? " local " : " server ")
-          << "flag override request for " << msg.package_name() << "/"
-          << msg.flag_name() << " to " << msg.flag_value();
-      result = HandleFlagOverride(msg, return_message);
+      if (msg.has_ota_build_id()) {
+        LOG(INFO) << "received an OTA flag stage request for " << msg.package_name()
+            << "/" << msg.flag_name() << " for build " << msg.ota_build_id();
+        // TODO: no op for now, add implementation to stage OTA flags
+      } else {
+        LOG(INFO) << "received a" << (msg.is_local() ? " local " : " server ")
+                  << "flag override request for " << msg.package_name() << "/"
+                  << msg.flag_name() << " to " << msg.flag_value();
+        result = HandleFlagOverride(msg, return_message);
+      }
       break;
     }
     case StorageRequestMessage::kFlagQueryMessage: {
