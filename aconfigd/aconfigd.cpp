@@ -152,6 +152,16 @@ Result<void> Aconfigd::HandleListStorage(
 
 /// Initialize in memory aconfig storage records
 Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
+  // remove old records pb
+  if (FileExists("/metadata/aconfig/persistent_storage_file_records.pb")) {
+    unlink("/metadata/aconfig/persistent_storage_file_records.pb");
+  }
+
+  // remove old records pb
+  if (FileExists("/metadata/aconfig/persist_storage_file_records.pb")) {
+    unlink("/metadata/aconfig/persist_storage_file_records.pb");
+  }
+
   auto records_pb = ReadPbFromFile<PersistStorageRecords>(persist_storage_records_);
   RETURN_IF_ERROR(records_pb, "Unable to read persistent storage records");
   for (const auto& entry : records_pb->records()) {
@@ -261,10 +271,16 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a" << (msg.is_local() ? " local " : " server ")
-          << "flag override request for " << msg.package_name() << "/"
-          << msg.flag_name() << " to " << msg.flag_value();
-      result = HandleFlagOverride(msg, return_message);
+      if (msg.has_ota_build_id()) {
+        LOG(INFO) << "received an OTA flag stage request for " << msg.package_name()
+            << "/" << msg.flag_name() << " for build " << msg.ota_build_id();
+        // TODO: no op for now, add implementation to stage OTA flags
+      } else {
+        LOG(INFO) << "received a" << (msg.is_local() ? " local " : " server ")
+                  << "flag override request for " << msg.package_name() << "/"
+                  << msg.flag_name() << " to " << msg.flag_value();
+        result = HandleFlagOverride(msg, return_message);
+      }
       break;
     }
     case StorageRequestMessage::kFlagQueryMessage: {
