@@ -84,6 +84,11 @@ namespace android {
         const StorageRequestMessage::FlagOverrideMessage& msg,
         StorageReturnMessage& return_msg);
 
+    /// Handle OTA flag staging request
+    base::Result<void> HandleOTAStaging(
+        const StorageRequestMessage::OTAFlagStagingMessage& msg,
+        StorageReturnMessage& return_msg);
+
     /// Handle new storage request
     base::Result<void> HandleNewStorage(
         const StorageRequestMessage::NewStorageMessage& msg,
