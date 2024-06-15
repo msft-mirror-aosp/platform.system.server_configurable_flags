@@ -110,6 +110,11 @@ namespace android {
                                          const std::string& flag_value,
                                          bool is_local_override = false);
 
+      /// apply ota flags and return remaining ota flags
+      base::Result<std::vector<FlagOverride>> ApplyOTAFlagsForContainer(
+          const std::string& container,
+          const std::vector<FlagOverride>& ota_flags);
+
       /// remove all local overrides
       base::Result<void> RemoveAllLocalOverrides();
 

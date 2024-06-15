@@ -288,6 +288,31 @@ namespace android {
     return {};
   }
 
+  /// apply ota flags and return remaining ota flags
+  base::Result<std::vector<FlagOverride>> StorageFilesManager::ApplyOTAFlagsForContainer(
+      const std::string& container,
+      const std::vector<FlagOverride>& ota_flags) {
+    auto storage_files = GetStorageFiles(container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    auto remaining_ota_flags = std::vector<FlagOverride>();
+    for (const auto& entry : ota_flags) {
+      auto has_flag = (**storage_files).HasPackage(entry.package_name());
+      RETURN_IF_ERROR(has_flag, "Failed to check if has flag");
+      if (*has_flag) {
+        auto result = UpdateFlagValue(entry.package_name(),
+                                      entry.flag_name(),
+                                      entry.flag_value());
+        RETURN_IF_ERROR(result, "Failed to apply staged OTA flag " + entry.package_name()
+                        + "/" + entry.flag_name());
+      } else {
+        remaining_ota_flags.push_back(entry);
+      }
+    }
+
+    return remaining_ota_flags;
+  }
+
   /// remove all local overrides
   base::Result<void> StorageFilesManager::RemoveAllLocalOverrides() {
     for (const auto& [container, storage_files] : all_storage_files_) {
