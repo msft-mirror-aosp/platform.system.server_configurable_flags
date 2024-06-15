@@ -84,6 +84,11 @@ namespace android {
         const StorageRequestMessage::FlagOverrideMessage& msg,
         StorageReturnMessage& return_msg);
 
+    /// Handle OTA flag staging request
+    base::Result<void> HandleOTAStaging(
+        const StorageRequestMessage::OTAFlagStagingMessage& msg,
+        StorageReturnMessage& return_msg);
+
     /// Handle new storage request
     base::Result<void> HandleNewStorage(
         const StorageRequestMessage::NewStorageMessage& msg,
@@ -106,6 +111,13 @@ namespace android {
     base::Result<void> HandleListStorage(
         const StorageRequestMessage::ListStorageMessage& msg,
         StorageReturnMessage& return_message);
+
+    /// Read OTA flag overrides to be applied for current build
+    base::Result<std::vector<FlagOverride>> ReadOTAFlagOverridesToApply();
+
+    /// Write remaining OTA flag overrides back to pb file
+    base::Result<void> WriteRemainingOTAOverrides(
+        const std::vector<FlagOverride>& ota_flags);
 
     private:
 
