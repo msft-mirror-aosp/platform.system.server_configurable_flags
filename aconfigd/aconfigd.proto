@@ -79,7 +79,12 @@ message StorageRequestMessage {
   }
 
   // reset all storage
-  message ResetStorageMessage {}
+  message ResetStorageMessage {
+    oneof msg {
+      bool all = 1;
+      string container = 2;
+    }
+  }
 
   // list storage
   message ListStorageMessage {
