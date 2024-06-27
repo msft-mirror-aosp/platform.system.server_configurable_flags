@@ -166,6 +166,21 @@ class AconfigdTest : public ::testing::Test {
     return message;
   }
 
+  StorageRequestMessage ota_flag_staging_message(
+      const std::string& build_id,
+      const std::vector<std::tuple<std::string, std::string, std::string>> flags) {
+    auto message = StorageRequestMessage();
+    auto* msg = message.mutable_ota_staging_message();
+    msg->set_build_id(build_id);
+    for (auto const& [package_name, flag_name, flag_value] : flags) {
+      auto* flag = msg->add_overrides();
+      flag->set_package_name(package_name);
+      flag->set_flag_name(flag_name);
+      flag->set_flag_value(flag_value);
+    }
+    return message;
+  }
+
   void verify_new_storage_return_message(base::Result<StorageReturnMessage> msg_result,
                                          bool ensure_updated = false) {
     ASSERT_TRUE(msg_result.ok()) << msg_result.error();
@@ -235,6 +250,12 @@ class AconfigdTest : public ::testing::Test {
     ASSERT_TRUE(msg_result.ok()) << msg_result.error();
     auto msg = *msg_result;
     ASSERT_TRUE(msg.has_reset_storage_message()) << msg.error_message();
+  }
+
+  void verify_ota_staging_return_message(base::Result<StorageReturnMessage> msg_result) {
+    ASSERT_TRUE(msg_result.ok()) << msg_result.error();
+    auto msg = *msg_result;
+    ASSERT_TRUE(msg.has_ota_staging_message()) << msg.error_message();
   }
 
   void verify_error_message(base::Result<StorageReturnMessage> msg_result,
@@ -939,6 +960,31 @@ TEST_F(AconfigdTest, list_nonexist_container) {
   request_msg = list_container_storage_message("unknown");
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Missing storage files object");
+}
+
+TEST_F(AconfigdTest, ota_flag_staging) {
+  auto a_mock = AconfigdMock();
+  auto request_msg = ota_flag_staging_message(
+      "mock_build_id",
+      {{"package_1", "flag_1", "true"},
+       {"package_2", "flag_1", "false"}});
+  auto return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_ota_staging_return_message(return_msg);
+  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/ota.pb"));
+  auto pb = ReadPbFromFile<StorageRequestMessage::OTAFlagStagingMessage>(
+      a_mock.flags_dir + "/ota.pb");
+  ASSERT_TRUE(pb.ok());
+  ASSERT_EQ(pb->build_id(), "mock_build_id");
+  auto flags = pb->overrides();
+  ASSERT_EQ(flags.size(), 2);
+  auto flag = pb->overrides(0);
+  ASSERT_EQ(flag.package_name(), "package_1");
+  ASSERT_EQ(flag.flag_name(), "flag_1");
+  ASSERT_EQ(flag.flag_value(), "true");
+  flag = pb->overrides(1);
+  ASSERT_EQ(flag.package_name(), "package_2");
+  ASSERT_EQ(flag.flag_name(), "flag_1");
+  ASSERT_EQ(flag.flag_value(), "false");
 }
 
 } // namespace aconfigd
