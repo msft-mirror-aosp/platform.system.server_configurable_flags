@@ -27,6 +27,7 @@ public class AconfigdFlagInfo {
     private String mLocalFlagValue;
     private String mBootFlagValue;
     private String mDefaultFlagValue;
+    private String mNamespace;
     private boolean mHasServerOverride;
     private boolean mHasLocalOverride;
     private boolean mIsReadWrite;
@@ -44,6 +45,7 @@ public class AconfigdFlagInfo {
         if (mBootFlagValue == null) {
             updateBootFlagValue();
         }
+        mNamespace = builder.mNamespace;
     }
 
     public String getFullFlagName() {
@@ -73,6 +75,10 @@ public class AconfigdFlagInfo {
 
     public String getDefaultFlagValue() {
         return mDefaultFlagValue;
+    }
+
+    public String getNamespace() {
+        return mNamespace;
     }
 
     public boolean getHasServerOverride() {
@@ -227,6 +233,7 @@ public class AconfigdFlagInfo {
         private String mLocalFlagValue;
         private String mBootFlagValue;
         private String mDefaultFlagValue;
+        private String mNamespace;
         private boolean mHasServerOverride;
         private boolean mHasLocalOverride;
         private boolean mIsReadWrite;
@@ -258,6 +265,11 @@ public class AconfigdFlagInfo {
 
         public Builder setDefaultFlagValue(String defaultFlagValue) {
             mDefaultFlagValue = nullOrEmpty(defaultFlagValue) ? null : defaultFlagValue;
+            return this;
+        }
+
+        public Builder setNamespace(String namespace) {
+            mNamespace = namespace;
             return this;
         }
 
