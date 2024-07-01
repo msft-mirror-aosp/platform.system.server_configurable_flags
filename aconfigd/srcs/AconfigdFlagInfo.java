@@ -42,9 +42,7 @@ public class AconfigdFlagInfo {
         mIsReadWrite = builder.mIsReadWrite;
         mBootFlagValue = builder.mBootFlagValue;
         if (mBootFlagValue == null) {
-            mBootFlagValue = mDefaultFlagValue == null ? mBootFlagValue : mDefaultFlagValue;
-            mBootFlagValue = mServerFlagValue == null ? mBootFlagValue : mServerFlagValue;
-            mBootFlagValue = mLocalFlagValue == null ? mBootFlagValue : mLocalFlagValue;
+            updateBootFlagValue();
         }
     }
 
@@ -89,20 +87,30 @@ public class AconfigdFlagInfo {
         return mIsReadWrite;
     }
 
-    public void merge(AconfigdFlagInfo other) {
-        if (!Objects.equals(mPackageName, other.mPackageName)
-                || !Objects.equals(mFlagName, other.mFlagName)
-        // skip checking read_write
-        /*|| mIsReadWrite != other.mIsReadWrite*/ ) return;
-        mServerFlagValue = mServerFlagValue == null ? other.mServerFlagValue : mServerFlagValue;
-        mLocalFlagValue = mLocalFlagValue == null ? other.mLocalFlagValue : mLocalFlagValue;
-        mDefaultFlagValue = mDefaultFlagValue == null ? other.mDefaultFlagValue : mDefaultFlagValue;
-        mHasServerOverride =
-                mHasServerOverride || other.mHasServerOverride || mServerFlagValue != null;
-        mHasLocalOverride = mHasLocalOverride || other.mHasLocalOverride || mLocalFlagValue != null;
+    public void setLocalFlagValue(String localFlagValue) {
+        if (!mIsReadWrite) {
+            return;
+        }
+        mLocalFlagValue = localFlagValue;
+        mHasLocalOverride = true;
+        updateBootFlagValue();
+    }
+
+    public void setServerFlagValue(String serverFlagValue) {
+        if (!mIsReadWrite) {
+            return;
+        }
+        mServerFlagValue = serverFlagValue;
+        mHasServerOverride = true;
+        updateBootFlagValue();
+    }
+
+    private void updateBootFlagValue() {
         mBootFlagValue = mDefaultFlagValue == null ? mBootFlagValue : mDefaultFlagValue;
-        mBootFlagValue = mServerFlagValue == null ? mBootFlagValue : mServerFlagValue;
-        mBootFlagValue = mLocalFlagValue == null ? mBootFlagValue : mLocalFlagValue;
+        if (mIsReadWrite) {
+            mBootFlagValue = mServerFlagValue == null ? mBootFlagValue : mServerFlagValue;
+            mBootFlagValue = mLocalFlagValue == null ? mBootFlagValue : mLocalFlagValue;
+        }
     }
 
     @Override
@@ -165,17 +173,6 @@ public class AconfigdFlagInfo {
             ret.append(String.format("flagName: %s -> %s\n", mFlagName, other.mFlagName));
             return ret.toString();
         }
-        if (!Objects.equals(mServerFlagValue, other.mServerFlagValue)) {
-            ret.append(
-                    String.format(
-                            "serverFlagValue: %s -> %s\n",
-                            mServerFlagValue, other.mServerFlagValue));
-        }
-        if (!Objects.equals(mLocalFlagValue, other.mLocalFlagValue)) {
-            ret.append(
-                    String.format(
-                            "localFlagValue: %s -> %s\n", mLocalFlagValue, other.mLocalFlagValue));
-        }
         if (!Objects.equals(mBootFlagValue, other.mBootFlagValue)) {
             ret.append(
                     String.format(
@@ -187,23 +184,35 @@ public class AconfigdFlagInfo {
                             "defaultFlagValue: %s -> %s\n",
                             mDefaultFlagValue, other.mDefaultFlagValue));
         }
-        if (mHasServerOverride != other.mHasServerOverride) {
-            ret.append(
-                    String.format(
-                            "hasServerOverride: %s -> %s\n",
-                            mHasServerOverride, other.mHasServerOverride));
+        if (mIsReadWrite != other.mIsReadWrite) {
+            ret.append(String.format("isReadWrite: %s -> %s\n", mIsReadWrite, other.mIsReadWrite));
         }
-        if (mHasLocalOverride != other.mHasLocalOverride) {
-            ret.append(
-                    String.format(
-                            "hasLocalOverride: %s -> %s\n",
-                            mHasLocalOverride, other.mHasLocalOverride));
+        if (mIsReadWrite && other.mIsReadWrite) {
+            if (!Objects.equals(mServerFlagValue, other.mServerFlagValue)) {
+                ret.append(
+                        String.format(
+                                "serverFlagValue: %s -> %s\n",
+                                mServerFlagValue, other.mServerFlagValue));
+            }
+            if (!Objects.equals(mLocalFlagValue, other.mLocalFlagValue)) {
+                ret.append(
+                        String.format(
+                                "localFlagValue: %s -> %s\n",
+                                mLocalFlagValue, other.mLocalFlagValue));
+            }
+            if (mHasServerOverride != other.mHasServerOverride) {
+                ret.append(
+                        String.format(
+                                "hasServerOverride: %s -> %s\n",
+                                mHasServerOverride, other.mHasServerOverride));
+            }
+            if (mHasLocalOverride != other.mHasLocalOverride) {
+                ret.append(
+                        String.format(
+                                "hasLocalOverride: %s -> %s\n",
+                                mHasLocalOverride, other.mHasLocalOverride));
+            }
         }
-        // Skip checking the read_write since settingsState doesn't store this info
-        // if (mIsReadWrite != other.mIsReadWrite) {
-        //     ret.append(String.format("isReadWrite: %s -> %s\n", mIsReadWrite,
-        // other.mIsReadWrite));
-        // }
         return ret.toString();
     }
 
