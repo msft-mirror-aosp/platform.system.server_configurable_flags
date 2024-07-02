@@ -22,7 +22,6 @@ cc_binary {
     "libcrypto",
   ],
   init_rc: ["aconfigd.rc"],
-  ldflags: ["-Wl,--allow-multiple-definition"],
 }
 
 aconfig_declarations {
@@ -98,7 +97,6 @@ cc_test {
         "device-tests",
         "general-tests",
     ],
-    ldflags: ["-Wl,--allow-multiple-definition"],
 }
 
 cc_test {
