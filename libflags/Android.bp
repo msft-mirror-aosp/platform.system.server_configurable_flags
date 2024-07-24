@@ -8,6 +8,7 @@ cc_library {
     host_supported: true,
     vendor_available: true,
     double_loadable: true,
+    product_available: true,
     shared_libs: [
         "libbase",
         "libcutils",

@@ -1,0 +1,8 @@
+{
+  "postsubmit": [
+    {
+      // aconfigd unit tests
+      "name": "aconfigd_test"
+    }
+  ]
+}
