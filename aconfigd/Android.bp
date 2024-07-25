@@ -68,6 +68,7 @@ rust_protobuf {
     protos: [
         "aconfigd.proto",
     ],
+    host_supported: true,
 }
 
 rust_defaults {
@@ -90,6 +91,7 @@ rust_library {
     name: "libaconfigd_protos",
     crate_name: "aconfigd_protos",
     defaults: ["aconfigd_protos.defaults"],
+    host_supported: true,
 }
 
 cc_test {

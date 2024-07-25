@@ -30,7 +30,17 @@
 // ---- When building with the Android tool-chain ----
 #[cfg(not(feature = "cargo"))]
 mod auto_generated {
+    pub use aconfigd_rust_proto::aconfigd::storage_request_message::list_storage_message::Msg as ProtoListStorageMessageMsg;
+    pub use aconfigd_rust_proto::aconfigd::storage_request_message::ListStorageMessage as ProtoListStorageMessage;
+    pub use aconfigd_rust_proto::aconfigd::storage_request_message::Msg as ProtoStorageRequestMessageMsg;
+    pub use aconfigd_rust_proto::aconfigd::storage_return_message::FlagQueryReturnMessage as ProtoFlagQueryReturnMessage;
+    pub use aconfigd_rust_proto::aconfigd::storage_return_message::ListStorageReturnMessage as ProtoListStorageReturnMessage;
+    pub use aconfigd_rust_proto::aconfigd::storage_return_message::Msg as ProtoStorageReturnMessageMsg;
     pub use aconfigd_rust_proto::aconfigd::LocalFlagOverrides as ProtoLocalFlagOverrides;
+    pub use aconfigd_rust_proto::aconfigd::StorageRequestMessage as ProtoStorageRequestMessage;
+    pub use aconfigd_rust_proto::aconfigd::StorageRequestMessages as ProtoStorageRequestMessages;
+    pub use aconfigd_rust_proto::aconfigd::StorageReturnMessage as ProtoStorageReturnMessage;
+    pub use aconfigd_rust_proto::aconfigd::StorageReturnMessages as ProtoStorageReturnMessages;
 }
 
 // ---- When building with cargo ----
@@ -40,7 +50,17 @@ mod auto_generated {
     // because this is only used during local development, and only if using cargo instead of the
     // Android tool-chain, we allow it
     include!(concat!(env!("OUT_DIR"), "/aconfigd_proto/mod.rs"));
+    pub use aconfigd::storage_request_message::list_storage_message::Msg as ProtoListStorageMessageMsg;
+    pub use aconfigd::storage_request_message::ListStorageMessage as ProtoListStorageMessage;
+    pub use aconfigd::storage_request_message::Msg as ProtoStorageRequestMessageMsg;
+    pub use aconfigd::storage_return_message::FlagQueryReturnMessage as ProtoFlagQueryReturnMessage;
+    pub use aconfigd::storage_return_message::ListStorageReturnMessage as ProtoListStorageReturnMessage;
+    pub use aconfigd::storage_return_message::Msg as ProtoStorageReturnMessageMsg;
     pub use aconfigd::LocalFlagOverrides as ProtoLocalFlagOverrides;
+    pub use aconfigd::StorageRequestMessage as ProtoStorageRequestMessage;
+    pub use aconfigd::StorageRequestMessages as ProtoStorageRequestMessages;
+    pub use aconfigd::StorageReturnMessage as ProtoStorageReturnMessage;
+    pub use aconfigd::StorageReturnMessages as ProtoStorageReturnMessages;
 }
 
 pub use auto_generated::*;
