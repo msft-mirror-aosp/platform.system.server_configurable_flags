@@ -79,7 +79,12 @@ message StorageRequestMessage {
   }
 
   // reset all storage
-  message ResetStorageMessage {}
+  message ResetStorageMessage {
+    oneof msg {
+      bool all = 1;
+      string container = 2;
+    }
+  }
 
   // list storage
   message ListStorageMessage {
@@ -125,6 +130,7 @@ message StorageReturnMessage {
     optional bool has_server_override = 7;
     optional bool is_readwrite = 8;
     optional bool has_local_override = 9;
+    optional string container = 10;
   }
 
   message RemoveLocalOverrideReturnMessage {}
