@@ -147,11 +147,11 @@ namespace android {
     bool new_container = !HasContainer(container);
     bool update_existing_container = false;
     if (!new_container) {
-      auto timestamp = GetFileTimeStamp(flag_val);
-      RETURN_IF_ERROR(timestamp, "Failed to get timestamp of " + flag_val);
+      auto digest = GetFilesDigest({package_map, flag_map, flag_val});
+      RETURN_IF_ERROR(digest, "Failed to get digest for " + container);
       auto storage_files = GetStorageFiles(container);
       RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
-      if ((**storage_files).GetStorageRecord().timestamp != *timestamp) {
+      if ((**storage_files).GetStorageRecord().digest != *digest) {
         update_existing_container = true;
       }
     }
@@ -256,7 +256,7 @@ namespace android {
       record_pb->set_package_map(record.package_map);
       record_pb->set_flag_map(record.flag_map);
       record_pb->set_flag_val(record.flag_val);
-      record_pb->set_timestamp(record.timestamp);
+      record_pb->set_digest(record.digest);
     }
     return WritePbToFile<PersistStorageRecords>(records_pb, file_name);
   }
@@ -286,6 +286,31 @@ namespace android {
     }
 
     return {};
+  }
+
+  /// apply ota flags and return remaining ota flags
+  base::Result<std::vector<FlagOverride>> StorageFilesManager::ApplyOTAFlagsForContainer(
+      const std::string& container,
+      const std::vector<FlagOverride>& ota_flags) {
+    auto storage_files = GetStorageFiles(container);
+    RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
+
+    auto remaining_ota_flags = std::vector<FlagOverride>();
+    for (const auto& entry : ota_flags) {
+      auto has_flag = (**storage_files).HasPackage(entry.package_name());
+      RETURN_IF_ERROR(has_flag, "Failed to check if has flag");
+      if (*has_flag) {
+        auto result = UpdateFlagValue(entry.package_name(),
+                                      entry.flag_name(),
+                                      entry.flag_value());
+        RETURN_IF_ERROR(result, "Failed to apply staged OTA flag " + entry.package_name()
+                        + "/" + entry.flag_name());
+      } else {
+        remaining_ota_flags.push_back(entry);
+      }
+    }
+
+    return remaining_ota_flags;
   }
 
   /// remove all local overrides

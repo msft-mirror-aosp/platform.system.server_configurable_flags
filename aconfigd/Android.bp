@@ -19,9 +19,9 @@ cc_binary {
     "libprotobuf-cpp-lite",
     "libbase",
     "liblog",
+    "libcrypto",
   ],
   init_rc: ["aconfigd.rc"],
-  ldflags: ["-Wl,--allow-multiple-definition"],
 }
 
 aconfig_declarations {
@@ -61,6 +61,39 @@ java_library {
     ],
 }
 
+rust_protobuf {
+    name: "libaconfigd_rust_proto",
+    crate_name: "aconfigd_rust_proto",
+    source_stem: "aconfigd_rust_proto_source",
+    protos: [
+        "aconfigd.proto",
+    ],
+    host_supported: true,
+}
+
+rust_defaults {
+    name: "aconfigd_protos.defaults",
+    edition: "2021",
+    clippy_lints: "android",
+    lints: "android",
+    srcs: ["src/lib.rs"],
+    rustlibs: [
+        "libaconfigd_rust_proto",
+        "libanyhow",
+        "libprotobuf",
+    ],
+    proc_macros: [
+        "libpaste",
+    ],
+}
+
+rust_library {
+    name: "libaconfigd_protos",
+    crate_name: "aconfigd_protos",
+    defaults: ["aconfigd_protos.defaults"],
+    host_supported: true,
+}
+
 cc_test {
     name: "aconfigd_test",
     team: "trendy_team_android_core_experiments",
@@ -82,6 +115,7 @@ cc_test {
         "libprotobuf-cpp-lite",
         "libbase",
         "liblog",
+        "libcrypto",
     ],
     data: [
         "tests/package.map",
@@ -95,7 +129,6 @@ cc_test {
         "device-tests",
         "general-tests",
     ],
-    ldflags: ["-Wl,--allow-multiple-definition"],
 }
 
 cc_test {
