@@ -59,7 +59,39 @@ java_library {
         "//apex_available:anyapex",
         "//apex_available:platform",
     ],
-    jarjar_rules: "jarjar-rules.txt"
+}
+
+rust_protobuf {
+    name: "libaconfigd_rust_proto",
+    crate_name: "aconfigd_rust_proto",
+    source_stem: "aconfigd_rust_proto_source",
+    protos: [
+        "aconfigd.proto",
+    ],
+    host_supported: true,
+}
+
+rust_defaults {
+    name: "aconfigd_protos.defaults",
+    edition: "2021",
+    clippy_lints: "android",
+    lints: "android",
+    srcs: ["src/lib.rs"],
+    rustlibs: [
+        "libaconfigd_rust_proto",
+        "libanyhow",
+        "libprotobuf",
+    ],
+    proc_macros: [
+        "libpaste",
+    ],
+}
+
+rust_library {
+    name: "libaconfigd_protos",
+    crate_name: "aconfigd_protos",
+    defaults: ["aconfigd_protos.defaults"],
+    host_supported: true,
 }
 
 cc_test {
@@ -124,5 +156,20 @@ cc_test {
     test_suites: [
         "device-tests",
         "general-tests",
+    ],
+}
+
+java_library {
+    name: "aconfigd_java_utils",
+    srcs: [
+        "srcs/**/*.java",
+    ],
+    static_libs: [
+        "aconfigd_java_proto_lib",
+    ],
+    min_sdk_version: "UpsideDownCake",
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
     ],
 }
