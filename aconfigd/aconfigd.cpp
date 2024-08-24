@@ -92,7 +92,6 @@ Result<void> Aconfigd::HandleFlagQuery(
   result_msg->set_has_server_override(snapshot->has_server_override);
   result_msg->set_is_readwrite(snapshot->is_readwrite);
   result_msg->set_has_local_override(snapshot->has_local_override);
-  result_msg->set_container(snapshot->container);
   return {};
 }
 
@@ -160,7 +159,6 @@ Result<void> Aconfigd::HandleListStorage(
     flag_msg->set_is_readwrite(flag.is_readwrite);
     flag_msg->set_has_server_override(flag.has_server_override);
     flag_msg->set_has_local_override(flag.has_local_override);
-    flag_msg->set_container(flag.container);
   }
   return {};
 }
