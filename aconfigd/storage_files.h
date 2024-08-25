@@ -171,7 +171,6 @@ namespace android {
         std::string local_flag_value;
         std::string boot_flag_value;
         std::string default_flag_value;
-        std::string container;
         bool is_readwrite;
         bool has_server_override;
         bool has_local_override;
