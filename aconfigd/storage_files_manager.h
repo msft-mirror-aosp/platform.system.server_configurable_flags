@@ -105,10 +105,11 @@ namespace android {
           const std::string& file_name);
 
       /// apply flag override
-      base::Result<void> UpdateFlagValue(const std::string& package_name,
-                                         const std::string& flag_name,
-                                         const std::string& flag_value,
-                                         bool is_local_override = false);
+      base::Result<void> UpdateFlagValue(
+          const std::string& package_name, const std::string& flag_name,
+          const std::string& flag_value,
+          const StorageRequestMessage::FlagOverrideType overrideType =
+              StorageRequestMessage::SERVER_ON_REBOOT);
 
       /// apply ota flags and return remaining ota flags
       base::Result<std::vector<FlagOverride>> ApplyOTAFlagsForContainer(
