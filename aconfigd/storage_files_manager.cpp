@@ -263,11 +263,9 @@ namespace android {
 
   /// apply flag override
   base::Result<void> StorageFilesManager::UpdateFlagValue(
-      const std::string& package_name,
-      const std::string& flag_name,
+      const std::string& package_name, const std::string& flag_name,
       const std::string& flag_value,
-      bool is_local_override) {
-
+      const StorageRequestMessage::FlagOverrideType override_type) {
     auto container = GetContainer(package_name);
     RETURN_IF_ERROR(container, "Failed to find owning container");
 
@@ -277,12 +275,23 @@ namespace android {
     auto context = (**storage_files).GetPackageFlagContext(package_name, flag_name);
     RETURN_IF_ERROR(context, "Failed to find package flag context");
 
-    if (is_local_override) {
-      auto update = (**storage_files).SetLocalFlagValue(*context, flag_value);
-      RETURN_IF_ERROR(update, "Failed to set local flag override");
-    } else {
-      auto update =(**storage_files).SetServerFlagValue(*context, flag_value);
-      RETURN_IF_ERROR(update, "Failed to set server flag value");
+    switch (override_type) {
+      case StorageRequestMessage::LOCAL_ON_REBOOT: {
+        auto update = (**storage_files).SetLocalFlagValue(*context, flag_value);
+        RETURN_IF_ERROR(update, "Failed to set local flag override");
+        break;
+      }
+      case StorageRequestMessage::SERVER_ON_REBOOT: {
+        auto update =
+            (**storage_files).SetServerFlagValue(*context, flag_value);
+        RETURN_IF_ERROR(update, "Failed to set server flag value");
+        break;
+      }
+      case StorageRequestMessage::LOCAL_IMMEDIATE: {
+        return base::Error() << "local immediate override not supported";
+      }
+      default:
+        return base::Error() << "unknown flag override type";
     }
 
     return {};
