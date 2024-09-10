@@ -35,10 +35,9 @@ namespace aconfigd {
 Result<void> Aconfigd::HandleFlagOverride(
     const StorageRequestMessage::FlagOverrideMessage& msg,
     StorageReturnMessage& return_msg) {
-  auto result = storage_files_manager_->UpdateFlagValue(msg.package_name(),
-                                                      msg.flag_name(),
-                                                      msg.flag_value(),
-                                                      msg.is_local());
+  auto result = storage_files_manager_->UpdateFlagValue(
+      msg.package_name(), msg.flag_name(), msg.flag_value(),
+      msg.override_type());
   RETURN_IF_ERROR(result, "Failed to set flag override");
   return_msg.mutable_flag_override_message();
   return {};
@@ -345,6 +344,24 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
   return {};
 }
 
+std::string message_type_display(
+    const StorageRequestMessage::FlagOverrideType override_type) {
+  switch (override_type) {
+    case StorageRequestMessage::LOCAL_IMMEDIATE: {
+      return "local immediate";
+    }
+    case StorageRequestMessage::LOCAL_ON_REBOOT: {
+      return "local on reboot";
+    }
+    case StorageRequestMessage::SERVER_ON_REBOOT: {
+      return "server on reboot";
+    }
+    default: {
+      return "unknown";
+    }
+  }
+}
+
 /// Handle incoming messages to aconfigd socket
 Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
                                            StorageReturnMessage& return_message) {
@@ -361,8 +378,8 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a" << (msg.is_local() ? " local " : " server ")
-                << "flag override request for " << msg.package_name() << "/"
+      LOG(INFO) << "received a '" << message_type_display(msg.override_type())
+                << "' flag override request for " << msg.package_name() << "/"
                 << msg.flag_name() << " to " << msg.flag_value();
       result = HandleFlagOverride(msg, return_message);
       break;

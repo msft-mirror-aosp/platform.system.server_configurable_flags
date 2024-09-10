@@ -31,6 +31,8 @@
 #[cfg(not(feature = "cargo"))]
 mod auto_generated {
     pub use aconfigd_rust_proto::aconfigd::storage_request_message::list_storage_message::Msg as ProtoListStorageMessageMsg;
+    pub use aconfigd_rust_proto::aconfigd::storage_request_message::FlagOverrideMessage as ProtoFlagOverrideMessage;
+    pub use aconfigd_rust_proto::aconfigd::storage_request_message::FlagOverrideType as ProtoFlagOverrideType;
     pub use aconfigd_rust_proto::aconfigd::storage_request_message::ListStorageMessage as ProtoListStorageMessage;
     pub use aconfigd_rust_proto::aconfigd::storage_request_message::Msg as ProtoStorageRequestMessageMsg;
     pub use aconfigd_rust_proto::aconfigd::storage_return_message::FlagQueryReturnMessage as ProtoFlagQueryReturnMessage;
@@ -51,6 +53,8 @@ mod auto_generated {
     // Android tool-chain, we allow it
     include!(concat!(env!("OUT_DIR"), "/aconfigd_proto/mod.rs"));
     pub use aconfigd::storage_request_message::list_storage_message::Msg as ProtoListStorageMessageMsg;
+    pub use aconfigd::storage_request_message::FlagOverrideMessage as ProtoFlagOverrideMessage;
+    pub use aconfigd::storage_request_message::FlagOverrideType as ProtoFlagOverrideType;
     pub use aconfigd::storage_request_message::ListStorageMessage as ProtoListStorageMessage;
     pub use aconfigd::storage_request_message::Msg as ProtoStorageRequestMessageMsg;
     pub use aconfigd::storage_return_message::FlagQueryReturnMessage as ProtoFlagQueryReturnMessage;
