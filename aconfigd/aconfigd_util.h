@@ -86,5 +86,8 @@ namespace android {
     return {};
   }
 
+  /// convert override type enum to string
+  std::string OverrideTypeToStr(const StorageRequestMessage::FlagOverrideType&);
+
   }// namespace aconfig
 } // namespace android

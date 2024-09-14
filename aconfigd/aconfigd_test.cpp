@@ -108,13 +108,24 @@ class AconfigdTest : public ::testing::Test {
   StorageRequestMessage flag_override_message(const std::string& package,
                                               const std::string& flag,
                                               const std::string& value,
-                                              bool is_local) {
+                                              bool is_local,
+                                              bool is_immediate) {
     auto message = StorageRequestMessage();
     auto* msg = message.mutable_flag_override_message();
+
+    StorageRequestMessage::FlagOverrideType override_type;
+    if (is_local && is_immediate) {
+      override_type = StorageRequestMessage::LOCAL_IMMEDIATE;
+    } else if (is_local && !is_immediate) {
+      override_type = StorageRequestMessage::LOCAL_ON_REBOOT;
+    } else {
+      override_type = StorageRequestMessage::SERVER_ON_REBOOT;
+    }
+
     msg->set_package_name(package);
     msg->set_flag_name(flag);
     msg->set_flag_value(value);
-    msg->set_is_local(is_local);
+    msg->set_override_type(override_type);
     return message;
   }
 
@@ -516,8 +527,8 @@ TEST_F(AconfigdTest, server_override) {
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -528,8 +539,8 @@ TEST_F(AconfigdTest, server_override) {
       return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "false", "",
       "true", "true", true, true, false);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -550,8 +561,8 @@ TEST_F(AconfigdTest, server_override_survive_update) {
   verify_new_storage_return_message(return_msg, true);
 
   // create a server override
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -590,8 +601,8 @@ TEST_F(AconfigdTest, local_override) {
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -602,8 +613,8 @@ TEST_F(AconfigdTest, local_override) {
       return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "", "false",
       "true", "true", true, false, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "true", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "true", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -624,8 +635,8 @@ TEST_F(AconfigdTest, local_override_survive_update) {
   verify_new_storage_return_message(return_msg, true);
 
   // create a local override
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -665,14 +676,14 @@ TEST_F(AconfigdTest, single_local_override_remove) {
   verify_new_storage_return_message(return_msg, true);
 
   // local override enabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "true", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "true", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -707,13 +718,13 @@ TEST_F(AconfigdTest, readonly_flag_override) {
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_ro", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_ro", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Cannot update read only flag");
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_ro", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_ro", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Cannot update read only flag");
 }
@@ -726,12 +737,13 @@ TEST_F(AconfigdTest, nonexist_flag_override) {
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message("unknown", "enabled_rw", "false", false);
+  request_msg =
+      flag_override_message("unknown", "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Failed to find owning container");
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "unknown", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "unknown", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Flag does not exist");
 }
@@ -762,14 +774,14 @@ TEST_F(AconfigdTest, storage_reset) {
   verify_new_storage_return_message(return_msg, true);
 
   // server override enabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "true", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "true", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -804,14 +816,14 @@ TEST_F(AconfigdTest, list_package) {
   verify_new_storage_return_message(return_msg, true);
 
   // server override disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "disabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override enabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -841,14 +853,14 @@ TEST_F(AconfigdTest, list_container) {
   verify_new_storage_return_message(return_msg, true);
 
   // server override test1.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "disabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override test2.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -893,14 +905,14 @@ TEST_F(AconfigdTest, list_all) {
   verify_new_storage_return_message(return_msg, true);
 
   // server override test1.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "disabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override test2.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
