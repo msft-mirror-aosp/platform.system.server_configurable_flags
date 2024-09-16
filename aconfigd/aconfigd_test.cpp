@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 
 #include <aconfigd.pb.h>
 #include "aconfigd_util.h"
@@ -314,17 +315,17 @@ std::string AconfigdTest::updated_flag_map_;
 std::string AconfigdTest::updated_flag_val_;
 
 TEST_F(AconfigdTest, init_platform_storage_fresh) {
-  auto a_mock = AconfigdMock();
-  auto init_result = a_mock.aconfigd.InitializePlatformStorage();
-  ASSERT_TRUE(init_result.ok()) << init_result.error();
-
-  auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
     {"system_ext", "/system_ext/etc/aconfig"},
     {"vendor", "/vendor/etc/aconfig"},
     {"product", "/product/etc/aconfig"}};
 
-  for (auto const& [container, storage_dir] : platform_aconfig_dirs) {
+  auto a_mock = AconfigdMock();
+  auto init_result = a_mock.aconfigd.InitializePlatformStorage(partitions);
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
+
+  for (auto const& [container, storage_dir] : partitions) {
     auto package_map = std::string(storage_dir) + "/package.map";
     auto flag_map = std::string(storage_dir) + "/flag.map";
     auto flag_val = std::string(storage_dir) + "/flag.val";
@@ -349,14 +350,20 @@ TEST_F(AconfigdTest, init_platform_storage_fresh) {
 }
 
 TEST_F(AconfigdTest, init_platform_storage_reboot) {
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
+    {"system", "/system/etc/aconfig"},
+    {"system_ext", "/system_ext/etc/aconfig"},
+    {"vendor", "/vendor/etc/aconfig"},
+    {"product", "/product/etc/aconfig"}};
+
   auto a_mock = AconfigdMock();
-  auto init_result = a_mock.aconfigd.InitializePlatformStorage();
+  auto init_result = a_mock.aconfigd.InitializePlatformStorage(partitions);
   ASSERT_TRUE(init_result.ok()) << init_result.error();
   auto old_timestamp = GetFileTimeStamp(a_mock.boot_dir + "/system.val");
   ASSERT_TRUE(old_timestamp.ok()) << old_timestamp.error();
 
   std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  init_result = a_mock.aconfigd.InitializePlatformStorage();
+  init_result = a_mock.aconfigd.InitializePlatformStorage(partitions);
   ASSERT_TRUE(init_result.ok()) << init_result.error();
   auto new_timestamp = GetFileTimeStamp(a_mock.boot_dir + "/system.val");
   ASSERT_TRUE(new_timestamp.ok()) << new_timestamp.error();
@@ -364,13 +371,7 @@ TEST_F(AconfigdTest, init_platform_storage_reboot) {
   // the boot file must be refreshed
   ASSERT_TRUE(*new_timestamp != *old_timestamp);
 
-  auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
-    {"system", "/system/etc/aconfig"},
-    {"system_ext", "/system_ext/etc/aconfig"},
-    {"vendor", "/vendor/etc/aconfig"},
-    {"product", "/product/etc/aconfig"}};
-
-  for (auto const& [container, storage_dir] : platform_aconfig_dirs) {
+  for (auto const& [container, storage_dir] : partitions) {
     auto package_map = std::string(storage_dir) + "/package.map";
     auto flag_map = std::string(storage_dir) + "/flag.map";
     auto flag_val = std::string(storage_dir) + "/flag.val";
@@ -997,6 +998,108 @@ TEST_F(AconfigdTest, ota_flag_staging) {
   ASSERT_EQ(flag.package_name(), "package_2");
   ASSERT_EQ(flag.flag_name(), "flag_1");
   ASSERT_EQ(flag.flag_value(), "false");
+}
+
+TEST_F(AconfigdTest, ota_flag_unstaging) {
+  auto a_mock = AconfigdMock();
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+
+  // add mock container to mock aconfigd
+  auto request_msg = new_storage_message(c_mock);
+  auto return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_new_storage_return_message(return_msg, true);
+
+  // fake an OTA staging request, using current build id
+  auto build_id = base::GetProperty("ro.build.fingerprint", "");
+  request_msg = ota_flag_staging_message(
+      build_id,
+      {{"com.android.aconfig.storage.test_1", "disabled_rw", "true"},
+       {"com.android.aconfig.storage.test_1", "enabled_rw", "false"},
+       {"com.android.aconfig.storage.test_4", "enabled_rw", "false"},
+       {"com.android.aconfig.storage.test_2", "disabled_rw", "true"}});
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_ota_staging_return_message(return_msg);
+  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/ota.pb"));
+
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
+    {"mockup", std::string(c_mock.root_dir.path) + "/etc/aconfig"}};
+  auto init_result = a_mock.aconfigd.InitializePlatformStorage(partitions);
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
+  ASSERT_FALSE(FileExists(a_mock.flags_dir + "/ota.pb"));
+
+  // list container
+  request_msg = list_container_storage_message("mockup");
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  ASSERT_TRUE(return_msg.ok()) << return_msg.error();
+  auto flags_msg = return_msg->list_storage_message();
+  ASSERT_EQ(flags_msg.flags_size(), 8);
+  verify_flag_query_return_message(
+      flags_msg.flags(0), "com.android.aconfig.storage.test_1", "disabled_rw",
+      "true", "", "true", "false", true, true, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(1), "com.android.aconfig.storage.test_1", "enabled_ro",
+      "", "", "true", "true", false, false, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(2), "com.android.aconfig.storage.test_1", "enabled_rw",
+      "false", "", "false", "true", true, true, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(3), "com.android.aconfig.storage.test_2", "disabled_rw",
+      "true", "", "true", "false", true, true, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(4), "com.android.aconfig.storage.test_2", "enabled_fixed_ro",
+      "", "", "true", "true", false, false, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(5), "com.android.aconfig.storage.test_2", "enabled_ro",
+      "", "", "true", "true", false, false, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(6), "com.android.aconfig.storage.test_4", "enabled_fixed_ro",
+      "", "", "true", "true", false, false, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(7), "com.android.aconfig.storage.test_4", "enabled_rw",
+      "false", "", "false", "true", true, true, false);
+}
+
+TEST_F(AconfigdTest, ota_flag_unstaging_negative) {
+  auto a_mock = AconfigdMock();
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+
+  // add mock container to mock aconfigd
+  auto request_msg = new_storage_message(c_mock);
+  auto return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_new_storage_return_message(return_msg, true);
+
+  // fake an OTA staging request, using current build id
+  request_msg = ota_flag_staging_message(
+      "some_fake_build_id",
+      {{"com.android.aconfig.storage.test_1", "disabled_rw", "true"},
+       {"com.android.aconfig.storage.test_1", "enabled_rw", "false"}});
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_ota_staging_return_message(return_msg);
+  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/ota.pb"));
+
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
+    {"mockup", std::string(c_mock.root_dir.path) + "/etc/aconfig"}};
+  auto init_result = a_mock.aconfigd.InitializePlatformStorage(partitions);
+  ASSERT_TRUE(init_result.ok()) << init_result.error();
+
+  // the ota unstaging should not happen
+  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/ota.pb"));
+
+  // list package
+  request_msg = list_package_storage_message("com.android.aconfig.storage.test_1");
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  ASSERT_TRUE(return_msg.ok()) << return_msg.error();
+  auto flags_msg = return_msg->list_storage_message();
+  ASSERT_EQ(flags_msg.flags_size(), 3);
+  verify_flag_query_return_message(
+      flags_msg.flags(0), "com.android.aconfig.storage.test_1", "disabled_rw",
+      "", "", "false", "false", true, false, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(1), "com.android.aconfig.storage.test_1", "enabled_ro",
+      "", "", "true", "true", false, false, false);
+  verify_flag_query_return_message(
+      flags_msg.flags(2), "com.android.aconfig.storage.test_1", "enabled_rw",
+      "", "", "true", "true", true, false, false);
 }
 
 } // namespace aconfigd
