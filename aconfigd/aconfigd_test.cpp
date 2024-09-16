@@ -14,15 +14,19 @@
  * limitations under the License.
  */
 
-#include <sys/stat.h>
-#include <gtest/gtest.h>
+#include "aconfigd.h"
+
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/properties.h>
+#include <flag_macros.h>
+#include <gtest/gtest.h>
+#include <sys/stat.h>
 
-#include <aconfigd.pb.h>
 #include "aconfigd_util.h"
-#include "aconfigd.h"
+#include "com_android_aconfig_new_storage.h"
+
+#define ACONFIGD_NS com::android::aconfig_new_storage
 
 namespace android {
 namespace aconfigd {
@@ -592,6 +596,29 @@ TEST_F(AconfigdTest, server_override_survive_update) {
   verify_flag_query_return_message(
       return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "false", "",
       "true", "true", true, true, false);
+}
+
+TEST_F_WITH_FLAGS(AconfigdTest, local_override_immediate,
+                  REQUIRES_FLAGS_ENABLED(ACONFIG_FLAG(
+                      ACONFIGD_NS, support_immediate_local_overrides))) {
+  auto a_mock = AconfigdMock();
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+
+  auto request_msg = new_storage_message(c_mock);
+  auto return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_new_storage_return_message(return_msg, true);
+
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, true);
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_flag_override_return_message(return_msg);
+
+  request_msg =
+      flag_query_message("com.android.aconfig.storage.test_1", "enabled_rw");
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_flag_query_return_message(
+      return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "",
+      "false", "false", "true", true, false, true);
 }
 
 TEST_F(AconfigdTest, local_override) {
