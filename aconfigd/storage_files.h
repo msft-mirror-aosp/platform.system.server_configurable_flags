@@ -129,6 +129,10 @@ namespace android {
       base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
                                             const std::string& flag_value);
 
+      /// write local override to boot flag file immediately
+      base::Result<void> WriteLocalOverrideToBootCopy(
+          const PackageFlagContext& context, const std::string& flag_value);
+
       /// local flag override, update local flag override pb filee
       base::Result<void> SetLocalFlagValue(const PackageFlagContext& context,
                                            const std::string& flag_value);

@@ -68,7 +68,8 @@ namespace android {
     base::Result<void> InitializeInMemoryStorageRecords();
 
     /// Initialize platform RO partition flag storage
-    base::Result<void> InitializePlatformStorage();
+    base::Result<void> InitializePlatformStorage(
+        std::vector<std::pair<std::string, std::string>> partitions);
 
     /// Initialize mainline flag storage
     base::Result<void> InitializeMainlineStorage();

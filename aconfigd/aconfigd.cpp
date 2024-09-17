@@ -228,7 +228,8 @@ Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
 }
 
 /// Initialize platform RO partition flag storage
-Result<void> Aconfigd::InitializePlatformStorage() {
+Result<void> Aconfigd::InitializePlatformStorage(
+    std::vector<std::pair<std::string,std::string>> partitions) {
   auto init_result = InitializeInMemoryStorageRecords();
   RETURN_IF_ERROR(init_result, "Failed to init from persist stoage records");
 
@@ -239,13 +240,7 @@ Result<void> Aconfigd::InitializePlatformStorage() {
   RETURN_IF_ERROR(ota_flags, "Failed to get remaining staged OTA flags");
   bool apply_ota_flag = !(ota_flags->empty());
 
-  auto value_files = std::vector<std::pair<std::string, std::string>>{
-    {"system", "/system/etc/aconfig"},
-    {"system_ext", "/system_ext/etc/aconfig"},
-    {"vendor", "/vendor/etc/aconfig"},
-    {"product", "/product/etc/aconfig"}};
-
-  for (auto const& [container, storage_dir] : value_files) {
+  for (auto const& [container, storage_dir] : partitions) {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
@@ -287,10 +282,6 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
   auto init_result = InitializeInMemoryStorageRecords();
   RETURN_IF_ERROR(init_result, "Failed to init from persist stoage records");
 
-  auto ota_flags = ReadOTAFlagOverridesToApply();
-  RETURN_IF_ERROR(ota_flags, "Failed to get remaining staged OTA flags");
-  bool apply_ota_flag = !(ota_flags->empty());
-
   auto apex_dir = std::unique_ptr<DIR, int (*)(DIR*)>(opendir("/apex"), closedir);
   if (!apex_dir) {
     return {};
@@ -319,12 +310,6 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 
-    if (apply_ota_flag) {
-      ota_flags = storage_files_manager_->ApplyOTAFlagsForContainer(
-          container, *ota_flags);
-      RETURN_IF_ERROR(ota_flags, "Failed to apply staged OTA flags");
-    }
-
     auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
         persist_storage_records_);
     RETURN_IF_ERROR(write_result, "Failed to write to persist storage records");
@@ -332,11 +317,6 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
     auto copied = storage_files_manager_->CreateStorageBootCopy(container);
     RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
                     + container);
-  }
-
-  if (apply_ota_flag) {
-    auto result = WriteRemainingOTAOverrides(*ota_flags);
-    RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
   }
 
   return {};
