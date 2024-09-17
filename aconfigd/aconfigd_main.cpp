@@ -30,7 +30,13 @@ static int aconfigd_platform_init() {
   auto aconfigd = Aconfigd(kAconfigdRootDir,
                            kPersistentStorageRecordsFileName);
 
-  auto init_result = aconfigd.InitializePlatformStorage();
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
+    {"system", "/system/etc/aconfig"},
+    {"system_ext", "/system_ext/etc/aconfig"},
+    {"vendor", "/vendor/etc/aconfig"},
+    {"product", "/product/etc/aconfig"}};
+
+  auto init_result = aconfigd.InitializePlatformStorage(partitions);
   if (!init_result.ok()) {
     LOG(ERROR) << "failed to initialize platform storage records: " << init_result.error();
     return 1;
