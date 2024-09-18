@@ -274,6 +274,34 @@ Result<void> Aconfigd::InitializePlatformStorage(
     RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
   }
 
+  // TODO remove this logic once new storage launch complete
+  // if flag enable_only_new_storage is true, writes a marker file
+  {
+    auto flags = storage_files_manager_->ListFlagsInPackage("com.android.aconfig.flags");
+    RETURN_IF_ERROR(flags, "Failed to list flags");
+    bool enable_only_new_storage = false;
+    for (const auto& flag : *flags) {
+      if (flag.flag_name == "enable_only_new_storage") {
+        enable_only_new_storage = (flag.boot_flag_value == "true");
+        break;
+      }
+    }
+    auto marker_file = std::string("/metadata/aconfig/boot/enable_only_new_storage");
+    if (enable_only_new_storage) {
+      if (!FileExists(marker_file)) {
+        int fd = open(marker_file.c_str(), O_CREAT, 0644);
+        if (fd == -1) {
+          return ErrnoError() << "failed to create marker file";
+        }
+        close(fd);
+      }
+    } else {
+      if (FileExists(marker_file)) {
+        unlink(marker_file.c_str());
+      }
+    }
+  }
+
   return {};
 }
 
