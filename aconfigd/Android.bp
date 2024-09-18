@@ -126,6 +126,7 @@ cc_test {
         "liblog",
         "libcrypto",
         "server_configurable_flags",
+        "libaconfig_flags_cc",
     ],
     data: [
         "tests/package.map",
