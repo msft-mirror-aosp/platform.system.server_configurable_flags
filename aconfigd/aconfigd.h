@@ -68,8 +68,7 @@ namespace android {
     base::Result<void> InitializeInMemoryStorageRecords();
 
     /// Initialize platform RO partition flag storage
-    base::Result<void> InitializePlatformStorage(
-        std::vector<std::pair<std::string, std::string>> partitions);
+    base::Result<void> InitializePlatformStorage();
 
     /// Initialize mainline flag storage
     base::Result<void> InitializeMainlineStorage();
@@ -115,10 +114,6 @@ namespace android {
 
     /// Read OTA flag overrides to be applied for current build
     base::Result<std::vector<FlagOverride>> ReadOTAFlagOverridesToApply();
-
-    /// Write remaining OTA flag overrides back to pb file
-    base::Result<void> WriteRemainingOTAOverrides(
-        const std::vector<FlagOverride>& ota_flags);
 
     private:
 
