@@ -1,27 +1,31 @@
 cc_binary {
-  name: "aconfigd",
-  srcs: [
-    "aconfigd.cpp",
-    "aconfigd.proto",
-    "aconfigd_main.cpp",
-    "aconfigd_util.cpp",
-    "storage_files.cpp",
-    "storage_files_manager.cpp"
-  ],
-  static_libs: [
-    "libaconfig_new_storage_flags",
-    "libaconfig_storage_file_cc",
-    "libaconfig_storage_read_api_cc",
-    "libaconfig_storage_write_api_cc",
-  ],
-  shared_libs: [
-    "libcutils",
-    "libprotobuf-cpp-lite",
-    "libbase",
-    "liblog",
-    "libcrypto",
-  ],
-  init_rc: ["aconfigd.rc"],
+    name: "aconfigd",
+    defaults: [
+        "aconfig_lib_cc_shared_link.defaults",
+    ],
+    srcs: [
+        "aconfigd.cpp",
+        "aconfigd.proto",
+        "aconfigd_main.cpp",
+        "aconfigd_util.cpp",
+        "storage_files.cpp",
+        "storage_files_manager.cpp",
+    ],
+    static_libs: [
+        "libaconfig_storage_file_cc",
+        "libaconfig_new_storage_flags",
+        "libaconfig_storage_read_api_cc",
+        "libaconfig_storage_write_api_cc",
+    ],
+    shared_libs: [
+        "libcutils",
+        "libprotobuf-cpp-lite",
+        "libbase",
+        "liblog",
+        "libcrypto",
+        "server_configurable_flags",
+    ],
+    init_rc: ["aconfigd.rc"],
 }
 
 aconfig_declarations {
@@ -96,6 +100,9 @@ rust_library {
 
 cc_test {
     name: "aconfigd_test",
+    defaults: [
+        "aconfig_lib_cc_shared_link.defaults",
+    ],
     team: "trendy_team_android_core_experiments",
     srcs: [
         "aconfigd_test.cpp",
@@ -106,8 +113,10 @@ cc_test {
         "aconfigd.proto",
     ],
     static_libs: [
+        "libflagtest",
         "libgmock",
         "libaconfig_storage_file_cc",
+        "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
     ],
@@ -116,6 +125,8 @@ cc_test {
         "libbase",
         "liblog",
         "libcrypto",
+        "server_configurable_flags",
+        "libaconfig_flags_cc",
     ],
     data: [
         "tests/package.map",

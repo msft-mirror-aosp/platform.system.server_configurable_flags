@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include "storage_files.h"
+
 #include <android-base/logging.h>
 #include <unistd.h>
 
@@ -21,7 +23,7 @@
 
 #include "aconfigd.h"
 #include "aconfigd_util.h"
-#include "storage_files.h"
+#include "com_android_aconfig_new_storage.h"
 
 using namespace aconfig_storage;
 
@@ -621,9 +623,29 @@ namespace android {
     return {};
   }
 
+  /// Write override immediately to boot copy.
+  base::Result<void> StorageFiles::WriteLocalOverrideToBootCopy(
+      const PackageFlagContext& context, const std::string& flag_value) {
+    if (chmod(storage_record_.boot_flag_val.c_str(), 0644) == -1) {
+      return base::ErrnoError() << "chmod() failed to set to 0644";
+    }
+
+    auto flag_value_file =
+        map_mutable_storage_file(storage_record_.boot_flag_val);
+    auto update_result = set_boolean_flag_value(
+        **flag_value_file, context.flag_index, flag_value == "true");
+    RETURN_IF_ERROR(update_result, "Failed to update flag value");
+
+    if (chmod(storage_record_.boot_flag_val.c_str(), 0444) == -1) {
+      return base::ErrnoError() << "chmod() failed to set to 0444";
+    }
+
+    return {};
+  }
+
   /// local flag override, update local flag override pb filee
-  base::Result<void> StorageFiles::SetLocalFlagValue(const PackageFlagContext& context,
-                                                     const std::string& flag_value) {
+  base::Result<void> StorageFiles::SetLocalFlagValue(
+      const PackageFlagContext& context, const std::string& flag_value) {
     if (!context.flag_exists) {
       return base::Error() << "Flag does not exist";
     }
