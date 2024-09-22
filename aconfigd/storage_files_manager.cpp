@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
+#include "storage_files_manager.h"
+
 #include "aconfigd.h"
 #include "aconfigd_util.h"
-#include "storage_files_manager.h"
+#include "com_android_aconfig_new_storage.h"
 
 using namespace aconfig_storage;
 
@@ -288,7 +290,20 @@ namespace android {
         break;
       }
       case StorageRequestMessage::LOCAL_IMMEDIATE: {
-        return base::Error() << "local immediate override not supported";
+        if (!com::android::aconfig_new_storage::
+                support_immediate_local_overrides()) {
+          return base::Error() << "local immediate override not supported";
+        }
+
+        auto updateOverride =
+            (**storage_files).SetLocalFlagValue(*context, flag_value);
+        RETURN_IF_ERROR(updateOverride, "Failed to set local flag override");
+        auto updateBootFile =
+            (**storage_files)
+                .WriteLocalOverrideToBootCopy(*context, flag_value);
+        RETURN_IF_ERROR(updateBootFile,
+                        "Failed to write local override to boot file");
+        break;
       }
       default:
         return base::Error() << "unknown flag override type";
