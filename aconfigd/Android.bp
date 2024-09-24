@@ -65,6 +65,21 @@ java_library {
     ],
 }
 
+java_library {
+    name: "aconfigd_java_proto_lite_lib",
+    host_supported: true,
+    srcs: ["aconfigd.proto"],
+    proto: {
+        type: "lite",
+    },
+    sdk_version: "core_current",
+    min_sdk_version: "UpsideDownCake",
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+}
+
 rust_protobuf {
     name: "libaconfigd_rust_proto",
     crate_name: "aconfigd_rust_proto",
