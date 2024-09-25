@@ -25,6 +25,7 @@ message PersistStorageRecord {
   optional string flag_map = 4;
   optional string flag_val = 5;
   optional string digest = 6;
+  optional string flag_info = 7;
 }
 
 message PersistStorageRecords {
@@ -49,6 +50,7 @@ message StorageRequestMessage {
     optional string package_map = 2;
     optional string flag_map = 3;
     optional string flag_value = 4;
+    optional string flag_info = 5;
   }
 
   enum FlagOverrideType {

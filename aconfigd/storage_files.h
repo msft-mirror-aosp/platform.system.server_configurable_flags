@@ -34,6 +34,7 @@ namespace android {
       std::string package_map;          // package.map on container
       std::string flag_map;             // flag.map on container
       std::string flag_val;             // flag.val on container
+      std::string flag_info;            // flag.info on container
       std::string persist_package_map;  // persist package.map (backup copy for OTA)
       std::string persist_flag_map;     // persist flag.map (backup copy for OTA)
       std::string persist_flag_val;     // persist flag.val
@@ -53,6 +54,7 @@ namespace android {
                    const std::string& package_map,
                    const std::string& flag_map,
                    const std::string& flag_val,
+                   const std::string& flag_info,
                    const std::string& root_dir,
                    base::Result<void>& status);
 

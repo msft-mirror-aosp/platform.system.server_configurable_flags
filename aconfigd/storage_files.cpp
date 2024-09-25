@@ -35,6 +35,7 @@ namespace android {
                              const std::string& package_map,
                              const std::string& flag_map,
                              const std::string& flag_val,
+                             const std::string& flag_info,
                              const std::string& root_dir,
                              base::Result<void>& status)
       : container_(container)
@@ -52,7 +53,7 @@ namespace android {
       return;
     }
 
-    auto digest = GetFilesDigest({package_map, flag_map, flag_val});
+    auto digest = GetFilesDigest({package_map, flag_map, flag_val, flag_info});
     if (!digest.ok()) {
       status = base::Error() << "failed to get files digest: " << digest.error();
       return;
@@ -63,6 +64,7 @@ namespace android {
     storage_record_.package_map = package_map;
     storage_record_.flag_map = flag_map;
     storage_record_.flag_val = flag_val;
+    storage_record_.flag_info = flag_info;
     storage_record_.persist_package_map =
         root_dir + "/maps/" + container + ".package.map";
     storage_record_.persist_flag_map =
@@ -103,12 +105,11 @@ namespace android {
       return;
     }
 
-    // create flag info file
-    auto create_result = create_flag_info(
-        package_map, flag_map, storage_record_.persist_flag_info);
-    if (!create_result.ok()) {
-      status = base::Error() << "failed to create flag info file for " << container
-                             << create_result.error();
+    // copy flag info file
+    copy_result = CopyFile(flag_info, storage_record_.persist_flag_info, 0644);
+    if (!copy_result.ok()) {
+      status = base::Error() << "CopyFile failed for " << flag_info << ": "
+                             << copy_result.error();
       return;
     }
   }
@@ -130,6 +131,12 @@ namespace android {
     storage_record_.package_map = pb.package_map();
     storage_record_.flag_map = pb.flag_map();
     storage_record_.flag_val = pb.flag_val();
+    if (pb.has_flag_info()) {
+      storage_record_.flag_info = pb.flag_info();
+    } else {
+      auto val_file = storage_record_.flag_val;
+      storage_record_.flag_info = val_file.substr(0, val_file.size()-3) + "info";
+    }
     storage_record_.persist_package_map =
         root_dir + "/maps/" + pb.container() + ".package.map";
     storage_record_.persist_flag_map =
