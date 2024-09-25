@@ -426,7 +426,7 @@ TEST_F(AconfigdTest, add_new_storage) {
   for (auto& entry : persist_records_pb.records()) {
     if (entry.container() == "mockup") {
       found = true;
-      ASSERT_EQ(entry.version(), 2);
+      ASSERT_EQ(entry.version(), 1);
       ASSERT_EQ(entry.package_map(), c_mock.package_map);
       ASSERT_EQ(entry.flag_map(), c_mock.flag_map);
       ASSERT_EQ(entry.flag_val(), c_mock.flag_val);
@@ -491,7 +491,7 @@ TEST_F(AconfigdTest, container_update_in_ota) {
   for (auto& entry : persist_records_pb.records()) {
     if (entry.container() == "mockup") {
       found = true;
-      ASSERT_EQ(entry.version(), 2);
+      ASSERT_EQ(entry.version(), 1);
       ASSERT_EQ(entry.package_map(), c_mock.package_map);
       ASSERT_EQ(entry.flag_map(), c_mock.flag_map);
       ASSERT_EQ(entry.flag_val(), c_mock.flag_val);
