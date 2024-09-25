@@ -146,9 +146,46 @@ cc_test {
         "tests/package.map",
         "tests/flag.map",
         "tests/flag.val",
+        "tests/flag.info",
         "tests/updated_package.map",
         "tests/updated_flag.map",
         "tests/updated_flag.val",
+        "tests/updated_flag.info",
+    ],
+    test_suites: [
+        "device-tests",
+        "general-tests",
+    ],
+}
+
+cc_test {
+    name: "aconfigd_proton_collider_test",
+    defaults: [
+        "aconfig_lib_cc_shared_link.defaults",
+    ],
+    team: "trendy_team_android_core_experiments",
+    srcs: [
+        "aconfigd_proton_collider_test.cpp",
+        "aconfigd_util.cpp",
+        "aconfigd.cpp",
+        "storage_files_manager.cpp",
+        "storage_files.cpp",
+        "aconfigd.proto",
+    ],
+    static_libs: [
+        "libflagtest",
+        "libgmock",
+        "libaconfig_storage_file_cc",
+        "libaconfig_new_storage_flags",
+        "libaconfig_storage_read_api_cc",
+        "libaconfig_storage_write_api_cc",
+    ],
+    shared_libs: [
+        "libprotobuf-cpp-lite",
+        "libbase",
+        "liblog",
+        "libcrypto",
+        "server_configurable_flags",
     ],
     test_suites: [
         "device-tests",

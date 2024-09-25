@@ -40,14 +40,15 @@ namespace android {
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
-      const std::string& flag_val) {
+      const std::string& flag_val,
+      const std::string& flag_info) {
     if (all_storage_files_.count(container)) {
       return base::Error() << "Storage file object for " << container << " already exists";
     }
 
     auto result = base::Result<void>({});
     auto storage_files = std::make_unique<StorageFiles>(
-          container, package_map, flag_map, flag_val, root_dir_, result);
+          container, package_map, flag_map, flag_val, flag_info, root_dir_, result);
 
     if (!result.ok()) {
       return base::Error() << "Failed to create storage file object for " << container
@@ -76,7 +77,8 @@ namespace android {
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
-      const std::string& flag_val) {
+      const std::string& flag_val,
+      const std::string& flag_info) {
     if (!all_storage_files_.count(container)) {
       return base::Error() << "Failed to update storage files object for " << container
                      << ", it does not exist";
@@ -95,7 +97,8 @@ namespace android {
     // clean up existing storage files object and recreate
     (**storage_files).RemoveAllPersistFiles();
     all_storage_files_.erase(container);
-    storage_files = AddNewStorageFiles(container, package_map, flag_map, flag_val);
+    storage_files = AddNewStorageFiles(
+        container, package_map, flag_map, flag_val, flag_info);
     RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
 
     // reapply local overrides
@@ -145,11 +148,12 @@ namespace android {
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
-      const std::string& flag_val) {
+      const std::string& flag_val,
+      const std::string& flag_info) {
     bool new_container = !HasContainer(container);
     bool update_existing_container = false;
     if (!new_container) {
-      auto digest = GetFilesDigest({package_map, flag_map, flag_val});
+      auto digest = GetFilesDigest({package_map, flag_map, flag_val, flag_info});
       RETURN_IF_ERROR(digest, "Failed to get digest for " + container);
       auto storage_files = GetStorageFiles(container);
       RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
@@ -165,11 +169,11 @@ namespace android {
 
     if (new_container) {
       auto storage_files = AddNewStorageFiles(
-          container, package_map, flag_map, flag_val);
+          container, package_map, flag_map, flag_val, flag_info);
       RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
     } else {
       auto storage_files = UpdateStorageFiles(
-          container, package_map, flag_map, flag_val);
+          container, package_map, flag_map, flag_val, flag_info);
       RETURN_IF_ERROR(storage_files, "Failed to update storage object for " + container);
     }
 
@@ -201,7 +205,7 @@ namespace android {
 
       if (available) {
         auto storage_files = AddNewStorageFiles(
-            container, record.package_map, record.flag_map, record.flag_val);
+            container, record.package_map, record.flag_map, record.flag_val, record.flag_info);
         RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
       }
     }
@@ -258,6 +262,7 @@ namespace android {
       record_pb->set_package_map(record.package_map);
       record_pb->set_flag_map(record.flag_map);
       record_pb->set_flag_val(record.flag_val);
+      record_pb->set_flag_info(record.flag_info);
       record_pb->set_digest(record.digest);
     }
     return WritePbToFile<PersistStorageRecords>(records_pb, file_name);
