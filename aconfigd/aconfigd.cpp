@@ -159,6 +159,7 @@ Result<void> Aconfigd::HandleListStorage(
     flag_msg->set_is_readwrite(flag.is_readwrite);
     flag_msg->set_has_server_override(flag.has_server_override);
     flag_msg->set_has_local_override(flag.has_local_override);
+    flag_msg->set_has_boot_local_override(flag.has_boot_local_override);
   }
   return {};
 }
