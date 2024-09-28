@@ -180,6 +180,7 @@ namespace android {
         bool is_readwrite;
         bool has_server_override;
         bool has_local_override;
+        bool has_boot_local_override;
       };
 
       /// list a flag
