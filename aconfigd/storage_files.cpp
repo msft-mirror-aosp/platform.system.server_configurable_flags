@@ -630,21 +630,35 @@ namespace android {
     return {};
   }
 
-  /// Write override immediately to boot copy.
+  /// Write override immediately to boot val and info copies.
   base::Result<void> StorageFiles::WriteLocalOverrideToBootCopy(
       const PackageFlagContext& context, const std::string& flag_value) {
     if (chmod(storage_record_.boot_flag_val.c_str(), 0644) == -1) {
-      return base::ErrnoError() << "chmod() failed to set to 0644";
+      return base::ErrnoError() << "chmod() failed to set boot val to 0644";
     }
 
     auto flag_value_file =
         map_mutable_storage_file(storage_record_.boot_flag_val);
     auto update_result = set_boolean_flag_value(
         **flag_value_file, context.flag_index, flag_value == "true");
-    RETURN_IF_ERROR(update_result, "Failed to update flag value");
+    RETURN_IF_ERROR(update_result, "Failed to update boot flag value");
 
     if (chmod(storage_record_.boot_flag_val.c_str(), 0444) == -1) {
-      return base::ErrnoError() << "chmod() failed to set to 0444";
+      return base::ErrnoError() << "chmod() failed to set boot val to 0444";
+    }
+
+    if (chmod(storage_record_.boot_flag_info.c_str(), 0644) == -1) {
+      return base::ErrnoError() << "chmod() failed to set boot info to 0644";
+    }
+
+    auto flag_info_file =
+        map_mutable_storage_file(storage_record_.boot_flag_info);
+    auto update_info_result = set_flag_has_local_override(
+        **flag_info_file, context.value_type, context.flag_index, true);
+    RETURN_IF_ERROR(update_info_result, "Failed to update boot flag info");
+
+    if (chmod(storage_record_.boot_flag_info.c_str(), 0444) == -1) {
+      return base::ErrnoError() << "chmod() failed to set boot info to 0444";
     }
 
     return {};
@@ -972,19 +986,20 @@ namespace android {
     }
 
     // fill boot value
-    listed_flags = list_flags(storage_record_.package_map,
-                              storage_record_.flag_map,
-                              storage_record_.boot_flag_val);
-    RETURN_IF_ERROR(
-        listed_flags, "Failed to list boot flags for " + storage_record_.container);
+    auto listed_flags_boot = list_flags_with_info(
+        storage_record_.package_map, storage_record_.flag_map,
+        storage_record_.boot_flag_val, storage_record_.boot_flag_info);
+    RETURN_IF_ERROR(listed_flags_boot, "Failed to list boot flags for " +
+                                           storage_record_.container);
 
-    for (auto const& flag : *listed_flags) {
+    for (auto const& flag : *listed_flags_boot) {
       auto full_flag_name = flag.package_name + "/" + flag.flag_name;
       if (!idxs.count(full_flag_name)) {
         continue;
       }
       auto idx = idxs[full_flag_name];
       snapshots[idx].boot_flag_value = std::move(flag.flag_value);
+      snapshots[idx].has_boot_local_override = flag.has_local_override;
     }
 
     // fill server value and attribute
