@@ -60,7 +60,8 @@ Result<void> Aconfigd::HandleNewStorage(
     const StorageRequestMessage::NewStorageMessage& msg,
     StorageReturnMessage& return_msg) {
   auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
+      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value(),
+      msg.flag_info());
   RETURN_IF_ERROR(updated, "Failed to add or update container");
 
   auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
@@ -158,6 +159,7 @@ Result<void> Aconfigd::HandleListStorage(
     flag_msg->set_is_readwrite(flag.is_readwrite);
     flag_msg->set_has_server_override(flag.has_server_override);
     flag_msg->set_has_local_override(flag.has_local_override);
+    flag_msg->set_has_boot_local_override(flag.has_boot_local_override);
   }
   return {};
 }
@@ -214,13 +216,14 @@ Result<void> Aconfigd::InitializePlatformStorage() {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
+    auto info_file = std::string(storage_dir) + "/flag.info";
 
     if (!FileNonZeroSize(value_file)) {
       continue;
     }
 
     auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-        container, package_file, flag_file, value_file);
+        container, package_file, flag_file, value_file, info_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 
@@ -293,13 +296,14 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
+    auto info_file = std::string(storage_dir) + "/flag.info";
 
     if (!FileExists(value_file) || !FileNonZeroSize(value_file)) {
       continue;
     }
 
     auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-        container, package_file, flag_file, value_file);
+        container, package_file, flag_file, value_file, info_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 

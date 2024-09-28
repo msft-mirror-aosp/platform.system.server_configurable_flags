@@ -35,6 +35,7 @@ mod auto_generated {
     pub use aconfigd_rust_proto::aconfigd::storage_request_message::FlagOverrideType as ProtoFlagOverrideType;
     pub use aconfigd_rust_proto::aconfigd::storage_request_message::ListStorageMessage as ProtoListStorageMessage;
     pub use aconfigd_rust_proto::aconfigd::storage_request_message::Msg as ProtoStorageRequestMessageMsg;
+    pub use aconfigd_rust_proto::aconfigd::storage_request_message::RemoveLocalOverrideMessage as ProtoRemoveLocalOverrideMessage;
     pub use aconfigd_rust_proto::aconfigd::storage_return_message::FlagQueryReturnMessage as ProtoFlagQueryReturnMessage;
     pub use aconfigd_rust_proto::aconfigd::storage_return_message::ListStorageReturnMessage as ProtoListStorageReturnMessage;
     pub use aconfigd_rust_proto::aconfigd::storage_return_message::Msg as ProtoStorageReturnMessageMsg;
@@ -57,6 +58,7 @@ mod auto_generated {
     pub use aconfigd::storage_request_message::FlagOverrideType as ProtoFlagOverrideType;
     pub use aconfigd::storage_request_message::ListStorageMessage as ProtoListStorageMessage;
     pub use aconfigd::storage_request_message::Msg as ProtoStorageRequestMessageMsg;
+    pub use aconfigd::storage_request_message::RemoveLocalOverrideMessage as ProtoRemoveLocalOverrideMessage;
     pub use aconfigd::storage_return_message::FlagQueryReturnMessage as ProtoFlagQueryReturnMessage;
     pub use aconfigd::storage_return_message::ListStorageReturnMessage as ProtoListStorageReturnMessage;
     pub use aconfigd::storage_return_message::Msg as ProtoStorageReturnMessageMsg;
