@@ -60,7 +60,8 @@ Result<void> Aconfigd::HandleNewStorage(
     const StorageRequestMessage::NewStorageMessage& msg,
     StorageReturnMessage& return_msg) {
   auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
+      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value(),
+      msg.flag_info());
   RETURN_IF_ERROR(updated, "Failed to add or update container");
 
   auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
@@ -177,50 +178,16 @@ Result<std::vector<FlagOverride>> Aconfigd::ReadOTAFlagOverridesToApply() {
       for (const auto& entry : ota_flags_pb->overrides()) {
         ota_flags.push_back(entry);
       }
+      // delete staged ota flags file if it matches current build id, so that
+      // it will not be reapplied in the future boots
+      unlink(ota_flags_pb_file.c_str());
     }
   }
   return ota_flags;
 }
 
-/// Write remaining OTA flag overrides back to pb file
-Result<void> Aconfigd::WriteRemainingOTAOverrides(
-    const std::vector<FlagOverride>& ota_flags) {
-  auto ota_flags_pb_file = root_dir_ + "/flags/ota.pb";
-
-  if (!ota_flags.empty()) {
-    auto ota_flags_pb = StorageRequestMessage::OTAFlagStagingMessage();
-    auto build_id = GetProperty("ro.build.fingerprint", "");
-    ota_flags_pb.set_build_id(build_id);
-    for (auto const& entry : ota_flags) {
-      auto* flag = ota_flags_pb.add_overrides();
-      flag->set_package_name(entry.package_name());
-      flag->set_flag_name(entry.flag_name());
-      flag->set_flag_value(entry.flag_value());
-    }
-    auto result = WritePbToFile<StorageRequestMessage::OTAFlagStagingMessage>(
-        ota_flags_pb, ota_flags_pb_file);
-    RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
-  } else {
-    if (FileExists(ota_flags_pb_file)) {
-      unlink(ota_flags_pb_file.c_str());
-    }
-  }
-
-  return {};
-}
-
 /// Initialize in memory aconfig storage records
 Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
-  // remove old records pb
-  if (FileExists("/metadata/aconfig/persistent_storage_file_records.pb")) {
-    unlink("/metadata/aconfig/persistent_storage_file_records.pb");
-  }
-
-  // remove old records pb
-  if (FileExists("/metadata/aconfig/persist_storage_file_records.pb")) {
-    unlink("/metadata/aconfig/persist_storage_file_records.pb");
-  }
-
   auto records_pb = ReadPbFromFile<PersistStorageRecords>(persist_storage_records_);
   RETURN_IF_ERROR(records_pb, "Unable to read persistent storage records");
   for (const auto& entry : records_pb->records()) {
@@ -230,8 +197,7 @@ Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
 }
 
 /// Initialize platform RO partition flag storage
-Result<void> Aconfigd::InitializePlatformStorage(
-    std::vector<std::pair<std::string,std::string>> partitions) {
+Result<void> Aconfigd::InitializePlatformStorage() {
   auto init_result = InitializeInMemoryStorageRecords();
   RETURN_IF_ERROR(init_result, "Failed to init from persist stoage records");
 
@@ -242,17 +208,23 @@ Result<void> Aconfigd::InitializePlatformStorage(
   RETURN_IF_ERROR(ota_flags, "Failed to get remaining staged OTA flags");
   bool apply_ota_flag = !(ota_flags->empty());
 
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
+    {"system", "/system/etc/aconfig"},
+    {"vendor", "/vendor/etc/aconfig"},
+    {"product", "/product/etc/aconfig"}};
+
   for (auto const& [container, storage_dir] : partitions) {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
+    auto info_file = std::string(storage_dir) + "/flag.info";
 
     if (!FileNonZeroSize(value_file)) {
       continue;
     }
 
     auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-        container, package_file, flag_file, value_file);
+        container, package_file, flag_file, value_file, info_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 
@@ -269,11 +241,6 @@ Result<void> Aconfigd::InitializePlatformStorage(
     auto copied = storage_files_manager_->CreateStorageBootCopy(container);
     RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
                     + container);
-  }
-
-  if (apply_ota_flag) {
-    auto result = WriteRemainingOTAOverrides(*ota_flags);
-    RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
   }
 
   return {};
@@ -302,13 +269,14 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
+    auto info_file = std::string(storage_dir) + "/flag.info";
 
     if (!FileExists(value_file) || !FileNonZeroSize(value_file)) {
       continue;
     }
 
     auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-        container, package_file, flag_file, value_file);
+        container, package_file, flag_file, value_file, info_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 
