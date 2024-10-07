@@ -8,3 +8,10 @@ flag {
   bug: "312444587"
   is_fixed_read_only: true
 }
+
+flag {
+    name: "support_immediate_local_overrides"
+    namespace: "core_experiments_team_internal"
+    description: "Support immediate local overrides."
+    bug: "360205436"
+}

@@ -26,6 +26,7 @@
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 
+#include <aconfigd.pb.h>
 #include "aconfigd_util.h"
 
 using namespace android::base;
@@ -141,6 +142,25 @@ Result<std::string> GetFilesDigest(const std::vector<std::string>& files) {
     ss << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
   }
   return ss.str();
+}
+
+/// convert override type enum to string
+std::string OverrideTypeToStr(
+    const StorageRequestMessage::FlagOverrideType& override_type) {
+  switch (override_type) {
+    case StorageRequestMessage::LOCAL_IMMEDIATE: {
+      return "local immediate";
+    }
+    case StorageRequestMessage::LOCAL_ON_REBOOT: {
+      return "local on reboot";
+    }
+    case StorageRequestMessage::SERVER_ON_REBOOT: {
+      return "server on reboot";
+    }
+    default: {
+      return "unknown";
+    }
+  }
 }
 
 } // namespace aconfig

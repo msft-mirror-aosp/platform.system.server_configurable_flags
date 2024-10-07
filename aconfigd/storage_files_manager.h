@@ -68,7 +68,8 @@ namespace android {
       base::Result<StorageFiles*> AddNewStorageFiles(const std::string& container,
                                                      const std::string& package_map,
                                                      const std::string& flag_map,
-                                                     const std::string& flag_val);
+                                                     const std::string& flag_val,
+                                                     const std::string& flag_info);
 
       /// restore storage files object from a storage record pb entry
       base::Result<void> RestoreStorageFiles(const PersistStorageRecord& pb);
@@ -77,13 +78,15 @@ namespace android {
       base::Result<void> UpdateStorageFiles(const std::string& container,
                                             const std::string& package_map,
                                             const std::string& flag_map,
-                                            const std::string& flag_val);
+                                            const std::string& flag_val,
+                                            const std::string& flag_info);
 
       /// add or update storage file set for a container
       base::Result<bool> AddOrUpdateStorageFiles(const std::string& container,
                                                  const std::string& package_map,
                                                  const std::string& flag_map,
-                                                 const std::string& flag_val);
+                                                 const std::string& flag_val,
+                                                 const std::string& flag_info);
 
       /// create boot copy
       base::Result<void> CreateStorageBootCopy(const std::string& container);
@@ -105,10 +108,11 @@ namespace android {
           const std::string& file_name);
 
       /// apply flag override
-      base::Result<void> UpdateFlagValue(const std::string& package_name,
-                                         const std::string& flag_name,
-                                         const std::string& flag_value,
-                                         bool is_local_override = false);
+      base::Result<void> UpdateFlagValue(
+          const std::string& package_name, const std::string& flag_name,
+          const std::string& flag_value,
+          const StorageRequestMessage::FlagOverrideType overrideType =
+              StorageRequestMessage::SERVER_ON_REBOOT);
 
       /// apply ota flags and return remaining ota flags
       base::Result<std::vector<FlagOverride>> ApplyOTAFlagsForContainer(
