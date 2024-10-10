@@ -16,6 +16,8 @@ cc_binary {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
+        // TODO(370864013): Remove this once the CTS annotation issue is fixed.
+        "cts_flags_tests_cc",
     ],
     shared_libs: [
         "libcutils",
@@ -76,14 +78,14 @@ cc_test {
         "libaconfig_flags_cc",
     ],
     data: [
-        "tests/package.map",
-        "tests/flag.map",
-        "tests/flag.val",
-        "tests/flag.info",
-        "tests/updated_package.map",
-        "tests/updated_flag.map",
-        "tests/updated_flag.val",
-        "tests/updated_flag.info",
+        "tests/data/v1/package.map",
+        "tests/data/v1/flag.map",
+        "tests/data/v1/flag.val",
+        "tests/data/v1/flag.info",
+        "tests/data/v2/package.map",
+        "tests/data/v2/flag.map",
+        "tests/data/v2/flag.val",
+        "tests/data/v2/flag.info",
     ],
     test_suites: [
         "device-tests",
@@ -144,9 +146,9 @@ cc_test {
         "liblog",
     ],
     data: [
-        "tests/package.map",
-        "tests/flag.map",
-        "tests/flag.val",
+        "tests/data/v1/package.map",
+        "tests/data/v1/flag.map",
+        "tests/data/v1/flag.val",
     ],
     test_suites: [
         "device-tests",
