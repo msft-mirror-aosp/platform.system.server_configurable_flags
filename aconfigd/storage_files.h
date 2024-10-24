@@ -34,6 +34,7 @@ namespace android {
       std::string package_map;          // package.map on container
       std::string flag_map;             // flag.map on container
       std::string flag_val;             // flag.val on container
+      std::string flag_info;            // flag.info on container
       std::string persist_package_map;  // persist package.map (backup copy for OTA)
       std::string persist_flag_map;     // persist flag.map (backup copy for OTA)
       std::string persist_flag_val;     // persist flag.val
@@ -53,6 +54,7 @@ namespace android {
                    const std::string& package_map,
                    const std::string& flag_map,
                    const std::string& flag_val,
+                   const std::string& flag_info,
                    const std::string& root_dir,
                    base::Result<void>& status);
 
@@ -129,6 +131,10 @@ namespace android {
       base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
                                             const std::string& flag_value);
 
+      /// write local override to boot flag file immediately
+      base::Result<void> WriteLocalOverrideToBootCopy(
+          const PackageFlagContext& context, const std::string& flag_value);
+
       /// local flag override, update local flag override pb filee
       base::Result<void> SetLocalFlagValue(const PackageFlagContext& context,
                                            const std::string& flag_value);
@@ -174,6 +180,7 @@ namespace android {
         bool is_readwrite;
         bool has_server_override;
         bool has_local_override;
+        bool has_boot_local_override;
       };
 
       /// list a flag
