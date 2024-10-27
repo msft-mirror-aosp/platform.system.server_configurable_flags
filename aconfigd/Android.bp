@@ -68,6 +68,7 @@ cc_test {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
+        "libaconfig_flags_cc",
     ],
     shared_libs: [
         "libprotobuf-cpp-lite",
@@ -75,7 +76,6 @@ cc_test {
         "liblog",
         "libcrypto",
         "server_configurable_flags",
-        "libaconfig_flags_cc",
     ],
     data: [
         "tests/data/v1/package.map",
@@ -126,6 +126,7 @@ cc_test {
         "device-tests",
         "general-tests",
     ],
+    test_config: "AndroidTest.aconfigd_proton_collider_test.xml",
 }
 
 cc_test {
@@ -154,6 +155,7 @@ cc_test {
         "device-tests",
         "general-tests",
     ],
+    test_config: "AndroidTest.aconfigd_socket_test.xml",
 }
 
 java_library {
