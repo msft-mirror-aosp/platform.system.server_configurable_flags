@@ -14,75 +14,23 @@
  * limitations under the License.
  */
 
-#include <sys/stat.h>
-#include <gtest/gtest.h>
+#include "aconfigd.h"
+
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
+#include <flag_macros.h>
+#include <gtest/gtest.h>
+#include <sys/stat.h>
 
-#include <aconfigd.pb.h>
+#include "aconfigd_test_mock.h"
 #include "aconfigd_util.h"
-#include "aconfigd.h"
+#include "com_android_aconfig_new_storage.h"
+
+#define ACONFIGD_NS com::android::aconfig_new_storage
 
 namespace android {
 namespace aconfigd {
-
-struct AconfigdMock {
-  TemporaryDir root_dir;
-  const std::string flags_dir;
-  const std::string maps_dir;
-  const std::string boot_dir;
-  const std::string persist_pb;
-  Aconfigd aconfigd;
-
-  AconfigdMock()
-      : root_dir()
-      , flags_dir(std::string(root_dir.path) + "/flags")
-      , maps_dir(std::string(root_dir.path) + "/maps")
-      , boot_dir(std::string(root_dir.path) + "/boot")
-      , persist_pb(std::string(root_dir.path) + "/persist.pb")
-      , aconfigd(root_dir.path, persist_pb) {
-    mkdir(flags_dir.c_str(), 0770);
-    mkdir(maps_dir.c_str(), 0770);
-    mkdir(boot_dir.c_str(), 0775);
-  }
-
-  base::Result<StorageReturnMessage> SendRequestToSocket(
-      const StorageRequestMessage& request) {
-    auto return_msg = StorageReturnMessage();
-    auto result = aconfigd.HandleSocketRequest(request, return_msg);
-    if (!result.ok()) {
-      return base::Error() << result.error();
-    } else {
-      return return_msg;
-    }
-  }
-};
-
-struct ContainerMock {
-  TemporaryDir root_dir;
-  const std::string container;
-  const std::string package_map;
-  const std::string flag_map;
-  const std::string flag_val;
-
-  ContainerMock(const std::string& container_name,
-                const std::string& package_map_file,
-                const std::string& flag_map_file,
-                const std::string& flag_val_file)
-      : root_dir()
-      , container(container_name)
-      , package_map(std::string(root_dir.path) + "/etc/aconfig/package.map")
-      , flag_map(std::string(root_dir.path) + "/etc/aconfig/flag.map")
-      , flag_val(std::string(root_dir.path) + "/etc/aconfig/flag.val") {
-    auto etc_dir = std::string(root_dir.path) + "/etc";
-    auto aconfig_dir = etc_dir + "/aconfig";
-    mkdir(etc_dir.c_str(), 0777);
-    mkdir(aconfig_dir.c_str(), 0777);
-    CopyFile(package_map_file, package_map, 0444);
-    CopyFile(flag_map_file, flag_map, 0444);
-    CopyFile(flag_val_file, flag_val, 0444);
-  }
-};
 
 class AconfigdTest : public ::testing::Test {
  protected:
@@ -90,31 +38,44 @@ class AconfigdTest : public ::testing::Test {
   StorageRequestMessage new_storage_message(const std::string& container,
                                             const std::string& package_map_file,
                                             const std::string& flag_map_file,
-                                            const std::string& flag_value_file) {
+                                            const std::string& flag_value_file,
+                                            const std::string& flag_info_file) {
     auto message = StorageRequestMessage();
     auto* msg = message.mutable_new_storage_message();
     msg->set_container(container);
     msg->set_package_map(package_map_file);
     msg->set_flag_map(flag_map_file);
     msg->set_flag_value(flag_value_file);
+    msg->set_flag_info(flag_info_file);
     return message;
   }
 
   StorageRequestMessage new_storage_message(const ContainerMock& mock) {
-    return new_storage_message(
-        mock.container, mock.package_map, mock.flag_map, mock.flag_val);
+    return new_storage_message(mock.container, mock.package_map, mock.flag_map,
+                               mock.flag_val, mock.flag_info);
   }
 
   StorageRequestMessage flag_override_message(const std::string& package,
                                               const std::string& flag,
                                               const std::string& value,
-                                              bool is_local) {
+                                              bool is_local,
+                                              bool is_immediate) {
     auto message = StorageRequestMessage();
     auto* msg = message.mutable_flag_override_message();
+
+    StorageRequestMessage::FlagOverrideType override_type;
+    if (is_local && is_immediate) {
+      override_type = StorageRequestMessage::LOCAL_IMMEDIATE;
+    } else if (is_local && !is_immediate) {
+      override_type = StorageRequestMessage::LOCAL_ON_REBOOT;
+    } else {
+      override_type = StorageRequestMessage::SERVER_ON_REBOOT;
+    }
+
     msg->set_package_name(package);
     msg->set_flag_name(flag);
     msg->set_flag_value(value);
-    msg->set_is_local(is_local);
+    msg->set_override_type(override_type);
     return message;
   }
 
@@ -166,21 +127,6 @@ class AconfigdTest : public ::testing::Test {
     return message;
   }
 
-  StorageRequestMessage ota_flag_staging_message(
-      const std::string& build_id,
-      const std::vector<std::tuple<std::string, std::string, std::string>> flags) {
-    auto message = StorageRequestMessage();
-    auto* msg = message.mutable_ota_staging_message();
-    msg->set_build_id(build_id);
-    for (auto const& [package_name, flag_name, flag_value] : flags) {
-      auto* flag = msg->add_overrides();
-      flag->set_package_name(package_name);
-      flag->set_flag_name(flag_name);
-      flag->set_flag_value(flag_value);
-    }
-    return message;
-  }
-
   void verify_new_storage_return_message(base::Result<StorageReturnMessage> msg_result,
                                          bool ensure_updated = false) {
     ASSERT_TRUE(msg_result.ok()) << msg_result.error();
@@ -192,7 +138,8 @@ class AconfigdTest : public ::testing::Test {
     }
   }
 
-  void verify_flag_override_return_message(base::Result<StorageReturnMessage> msg_result) {
+  void verify_flag_override_return_message(
+      base::Result<StorageReturnMessage> msg_result) {
     ASSERT_TRUE(msg_result.ok()) << msg_result.error();
     auto msg = *msg_result;
     ASSERT_TRUE(msg.has_flag_override_message()) << msg.error_message();
@@ -252,12 +199,6 @@ class AconfigdTest : public ::testing::Test {
     ASSERT_TRUE(msg.has_reset_storage_message()) << msg.error_message();
   }
 
-  void verify_ota_staging_return_message(base::Result<StorageReturnMessage> msg_result) {
-    ASSERT_TRUE(msg_result.ok()) << msg_result.error();
-    auto msg = *msg_result;
-    ASSERT_TRUE(msg.has_ota_staging_message()) << msg.error_message();
-  }
-
   void verify_error_message(base::Result<StorageReturnMessage> msg_result,
                             const std::string& errmsg) {
     ASSERT_FALSE(msg_result.ok());
@@ -267,7 +208,8 @@ class AconfigdTest : public ::testing::Test {
 
   void verify_equal_file_content(const std::string& file_one,
                                  const std::string& file_two) {
-
+    ASSERT_TRUE(FileExists(file_one)) << file_one << " does not exist";
+    ASSERT_TRUE(FileExists(file_two)) << file_one << " does not exist";
     auto content_one = std::string();
     auto content_two = std::string();
     ASSERT_TRUE(base::ReadFileToString(file_one, &content_one)) << strerror(errno);
@@ -279,61 +221,60 @@ class AconfigdTest : public ::testing::Test {
   // setup test suites
   static void SetUpTestSuite() {
     auto test_dir = base::GetExecutableDirectory();
-    package_map_ = test_dir + "/tests/package.map";
-    flag_map_ = test_dir + "/tests/flag.map";
-    flag_val_ = test_dir + "/tests/flag.val";
-    updated_package_map_ = test_dir + "/tests/updated_package.map";
-    updated_flag_map_ = test_dir + "/tests/updated_flag.map";
-    updated_flag_val_ = test_dir + "/tests/updated_flag.val";
+    package_map_ = test_dir + "/tests/data/v1/package.map";
+    flag_map_ = test_dir + "/tests/data/v1/flag.map";
+    flag_val_ = test_dir + "/tests/data/v1/flag.val";
+    flag_info_ = test_dir + "/tests/data/v1/flag.info";
+    updated_package_map_ = test_dir + "/tests/data/v2/package.map";
+    updated_flag_map_ = test_dir + "/tests/data/v2/flag.map";
+    updated_flag_val_ = test_dir + "/tests/data/v2/flag.val";
+    updated_flag_info_ = test_dir + "/tests/data/v2/flag.info";
   }
 
   static std::string package_map_;
   static std::string flag_map_;
   static std::string flag_val_;
+  static std::string flag_info_;
   static std::string updated_package_map_;
   static std::string updated_flag_map_;
   static std::string updated_flag_val_;
+  static std::string updated_flag_info_;
 }; // class AconfigdTest
 
 std::string AconfigdTest::package_map_;
 std::string AconfigdTest::flag_map_;
 std::string AconfigdTest::flag_val_;
+std::string AconfigdTest::flag_info_;
 std::string AconfigdTest::updated_package_map_;
 std::string AconfigdTest::updated_flag_map_;
 std::string AconfigdTest::updated_flag_val_;
+std::string AconfigdTest::updated_flag_info_;
 
 TEST_F(AconfigdTest, init_platform_storage_fresh) {
   auto a_mock = AconfigdMock();
   auto init_result = a_mock.aconfigd.InitializePlatformStorage();
   ASSERT_TRUE(init_result.ok()) << init_result.error();
 
-  auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
-    {"system_ext", "/system_ext/etc/aconfig"},
     {"vendor", "/vendor/etc/aconfig"},
     {"product", "/product/etc/aconfig"}};
 
-  for (auto const& [container, storage_dir] : platform_aconfig_dirs) {
+  for (auto const& [container, storage_dir] : partitions) {
     auto package_map = std::string(storage_dir) + "/package.map";
     auto flag_map = std::string(storage_dir) + "/flag.map";
     auto flag_val = std::string(storage_dir) + "/flag.val";
+    auto flag_info = std::string(storage_dir) + "/flag.info";
     if (!FileNonZeroSize(flag_val)) {
       continue;
     }
-
-    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".package.map"));
-    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".flag.map"));
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".val"));
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".info"));
-    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".val"));
-    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".info"));
 
     verify_equal_file_content(a_mock.maps_dir + "/" + container + ".package.map", package_map);
     verify_equal_file_content(a_mock.maps_dir + "/" + container + ".flag.map", flag_map);
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".val", flag_val);
     verify_equal_file_content(a_mock.boot_dir + "/" + container + ".val", flag_val);
-    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
-                              a_mock.boot_dir + "/" + container + ".info");
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info", flag_info);
+    verify_equal_file_content(a_mock.boot_dir + "/" + container + ".info", flag_info);
   }
 }
 
@@ -341,45 +282,30 @@ TEST_F(AconfigdTest, init_platform_storage_reboot) {
   auto a_mock = AconfigdMock();
   auto init_result = a_mock.aconfigd.InitializePlatformStorage();
   ASSERT_TRUE(init_result.ok()) << init_result.error();
-  auto old_timestamp = GetFileTimeStamp(a_mock.boot_dir + "/system.val");
-  ASSERT_TRUE(old_timestamp.ok()) << old_timestamp.error();
 
-  std::this_thread::sleep_for(std::chrono::milliseconds{10});
   init_result = a_mock.aconfigd.InitializePlatformStorage();
   ASSERT_TRUE(init_result.ok()) << init_result.error();
-  auto new_timestamp = GetFileTimeStamp(a_mock.boot_dir + "/system.val");
-  ASSERT_TRUE(new_timestamp.ok()) << new_timestamp.error();
 
-  // the boot file must be refreshed
-  ASSERT_TRUE(*new_timestamp != *old_timestamp);
-
-  auto platform_aconfig_dirs = std::vector<std::pair<std::string, std::string>>{
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
-    {"system_ext", "/system_ext/etc/aconfig"},
     {"vendor", "/vendor/etc/aconfig"},
     {"product", "/product/etc/aconfig"}};
 
-  for (auto const& [container, storage_dir] : platform_aconfig_dirs) {
+  for (auto const& [container, storage_dir] : partitions) {
     auto package_map = std::string(storage_dir) + "/package.map";
     auto flag_map = std::string(storage_dir) + "/flag.map";
     auto flag_val = std::string(storage_dir) + "/flag.val";
+    auto flag_info = std::string(storage_dir) + "/flag.info";
     if (!FileNonZeroSize(flag_val)) {
       continue;
     }
-
-    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".package.map"));
-    ASSERT_TRUE(FileExists(a_mock.maps_dir + "/" + container + ".flag.map"));
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".val"));
-    ASSERT_TRUE(FileExists(a_mock.flags_dir + "/" + container + ".info"));
-    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".val"));
-    ASSERT_TRUE(FileExists(a_mock.boot_dir + "/" + container + ".info"));
 
     verify_equal_file_content(a_mock.maps_dir + "/" + container + ".package.map", package_map);
     verify_equal_file_content(a_mock.maps_dir + "/" + container + ".flag.map", flag_map);
     verify_equal_file_content(a_mock.flags_dir + "/" + container + ".val", flag_val);
     verify_equal_file_content(a_mock.boot_dir + "/" + container + ".val", flag_val);
-    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info",
-                              a_mock.boot_dir + "/" + container + ".info");
+    verify_equal_file_content(a_mock.flags_dir + "/" + container + ".info", flag_info);
+    verify_equal_file_content(a_mock.boot_dir + "/" + container + ".info", flag_info);
   }
 }
 
@@ -392,21 +318,21 @@ TEST_F(AconfigdTest, init_mainline_storage_fresh) {
 TEST_F(AconfigdTest, add_new_storage) {
   // create mocks
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   // mock a socket request
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  auto digest = GetFilesDigest({c_mock.package_map, c_mock.flag_map, c_mock.flag_val});
+  auto digest = GetFilesDigest(
+      {c_mock.package_map, c_mock.flag_map, c_mock.flag_val, c_mock.flag_info});
   ASSERT_TRUE(digest.ok());
 
   // verify the record exists in persist records pb
   auto persist_records_pb = PersistStorageRecords();
   auto content = std::string();
-  ASSERT_TRUE(base::ReadFileToString(a_mock.persist_pb, &content))
-      << strerror(errno);
+  ASSERT_TRUE(base::ReadFileToString(a_mock.persist_pb, &content)) << strerror(errno);
   ASSERT_TRUE(persist_records_pb.ParseFromString(content)) << strerror(errno);
   bool found = false;
   for (auto& entry : persist_records_pb.records()) {
@@ -416,6 +342,7 @@ TEST_F(AconfigdTest, add_new_storage) {
       ASSERT_EQ(entry.package_map(), c_mock.package_map);
       ASSERT_EQ(entry.flag_map(), c_mock.flag_map);
       ASSERT_EQ(entry.flag_val(), c_mock.flag_val);
+      ASSERT_EQ(entry.flag_info(), c_mock.flag_info);
       ASSERT_EQ(entry.digest(), *digest);
       break;
     }
@@ -423,48 +350,35 @@ TEST_F(AconfigdTest, add_new_storage) {
   ASSERT_TRUE(found);
 
   // verify persist and boot files
-  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.package.map"));
-  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.flag.map"));
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.val"));
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.info"));
-  ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.val"));
-  ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.info"));
-
   verify_equal_file_content(a_mock.maps_dir + "/mockup.package.map", package_map_);
   verify_equal_file_content(a_mock.maps_dir + "/mockup.flag.map", flag_map_);
   verify_equal_file_content(a_mock.flags_dir + "/mockup.val", flag_val_);
   verify_equal_file_content(a_mock.boot_dir + "/mockup.val", flag_val_);
-  verify_equal_file_content(a_mock.flags_dir + "/mockup.info",
-                            a_mock.boot_dir + "/mockup.info");
+  verify_equal_file_content(a_mock.flags_dir + "/mockup.info", flag_info_);
+  verify_equal_file_content(a_mock.boot_dir + "/mockup.info", flag_info_);
 }
 
 TEST_F(AconfigdTest, container_update_in_ota) {
   // create mocks
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   // mock a socket request
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  // cache current boot flag info content
-  ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.info"));
-  auto boot_flag_info_content = std::string();
-  ASSERT_TRUE(base::ReadFileToString(a_mock.boot_dir + "/mockup.info",
-                                     &boot_flag_info_content));
-
   // mock an ota container update
-  ASSERT_TRUE(CopyFile(updated_package_map_, c_mock.package_map, 0444).ok());
-  ASSERT_TRUE(CopyFile(updated_flag_map_, c_mock.flag_map, 0444).ok());
-  ASSERT_TRUE(CopyFile(updated_flag_val_, c_mock.flag_val, 0444).ok());
+  c_mock.UpdateFiles(
+      updated_package_map_, updated_flag_map_, updated_flag_val_, updated_flag_info_);
 
   // force update
   request_msg = new_storage_message(c_mock);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  auto digest = GetFilesDigest({c_mock.package_map, c_mock.flag_map, c_mock.flag_val});
+  auto digest = GetFilesDigest(
+      {c_mock.package_map, c_mock.flag_map, c_mock.flag_val, c_mock.flag_info});
   ASSERT_TRUE(digest.ok());
 
   // verify the record exists in persist records pb
@@ -481,6 +395,7 @@ TEST_F(AconfigdTest, container_update_in_ota) {
       ASSERT_EQ(entry.package_map(), c_mock.package_map);
       ASSERT_EQ(entry.flag_map(), c_mock.flag_map);
       ASSERT_EQ(entry.flag_val(), c_mock.flag_val);
+      ASSERT_EQ(entry.flag_info(), c_mock.flag_info);
       ASSERT_EQ(entry.digest(), *digest);
       break;
     }
@@ -488,36 +403,26 @@ TEST_F(AconfigdTest, container_update_in_ota) {
   ASSERT_TRUE(found);
 
   // verify persist and boot files
-  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.package.map"));
-  ASSERT_TRUE(FileExists(a_mock.maps_dir + "/mockup.flag.map"));
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.val"));
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/mockup.info"));
-  ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.val"));
-  ASSERT_TRUE(FileExists(a_mock.boot_dir + "/mockup.info"));
-
-  verify_equal_file_content(a_mock.maps_dir + "/mockup.package.map",
-                            updated_package_map_);
+  verify_equal_file_content(a_mock.maps_dir + "/mockup.package.map", updated_package_map_);
   verify_equal_file_content(a_mock.maps_dir + "/mockup.flag.map", updated_flag_map_);
   verify_equal_file_content(a_mock.flags_dir + "/mockup.val", updated_flag_val_);
+  verify_equal_file_content(a_mock.flags_dir + "/mockup.info", updated_flag_info_);
 
   // the boot copy should never be updated
   verify_equal_file_content(a_mock.boot_dir + "/mockup.val", flag_val_);
-  auto new_boot_flag_info_content = std::string();
-  ASSERT_TRUE(base::ReadFileToString(a_mock.boot_dir + "/mockup.info",
-                                     &new_boot_flag_info_content));
-  ASSERT_EQ(boot_flag_info_content, new_boot_flag_info_content);
+  verify_equal_file_content(a_mock.boot_dir + "/mockup.info", flag_info_);
 }
 
 TEST_F(AconfigdTest, server_override) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -528,8 +433,8 @@ TEST_F(AconfigdTest, server_override) {
       return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "false", "",
       "true", "true", true, true, false);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -543,15 +448,15 @@ TEST_F(AconfigdTest, server_override) {
 
 TEST_F(AconfigdTest, server_override_survive_update) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // create a server override
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -563,10 +468,8 @@ TEST_F(AconfigdTest, server_override_survive_update) {
       "true", "true", true, true, false);
 
   // mock an ota container update
-  std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  ASSERT_TRUE(CopyFile(updated_package_map_, c_mock.package_map, 0444).ok());
-  ASSERT_TRUE(CopyFile(updated_flag_map_, c_mock.flag_map, 0444).ok());
-  ASSERT_TRUE(CopyFile(updated_flag_val_, c_mock.flag_val, 0444).ok());
+  c_mock.UpdateFiles(
+      updated_package_map_, updated_flag_map_, updated_flag_val_, updated_flag_info_);
 
   // force update
   request_msg = new_storage_message(c_mock);
@@ -582,16 +485,39 @@ TEST_F(AconfigdTest, server_override_survive_update) {
       "true", "true", true, true, false);
 }
 
-TEST_F(AconfigdTest, local_override) {
+TEST_F_WITH_FLAGS(AconfigdTest, local_override_immediate,
+                  REQUIRES_FLAGS_ENABLED(ACONFIG_FLAG(
+                      ACONFIGD_NS, support_immediate_local_overrides))) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, true);
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_flag_override_return_message(return_msg);
+
+  request_msg =
+      flag_query_message("com.android.aconfig.storage.test_1", "enabled_rw");
+  return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_flag_query_return_message(
+      return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "",
+      "false", "false", "true", true, false, true);
+}
+
+TEST_F(AconfigdTest, local_override) {
+  auto a_mock = AconfigdMock();
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
+
+  auto request_msg = new_storage_message(c_mock);
+  auto return_msg = a_mock.SendRequestToSocket(request_msg);
+  verify_new_storage_return_message(return_msg, true);
+
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -602,8 +528,8 @@ TEST_F(AconfigdTest, local_override) {
       return_msg, "com.android.aconfig.storage.test_1", "enabled_rw", "", "false",
       "true", "true", true, false, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "true", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "true", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -617,15 +543,15 @@ TEST_F(AconfigdTest, local_override) {
 
 TEST_F(AconfigdTest, local_override_survive_update) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // create a local override
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -637,10 +563,8 @@ TEST_F(AconfigdTest, local_override_survive_update) {
       "true", "true", true, false, true);
 
   // mock an ota container update
-  std::this_thread::sleep_for(std::chrono::milliseconds{10});
-  ASSERT_TRUE(CopyFile(updated_package_map_, c_mock.package_map, 0444).ok());
-  ASSERT_TRUE(CopyFile(updated_flag_map_, c_mock.flag_map, 0444).ok());
-  ASSERT_TRUE(CopyFile(updated_flag_val_, c_mock.flag_val, 0444).ok());
+  c_mock.UpdateFiles(
+      updated_package_map_, updated_flag_map_, updated_flag_val_, updated_flag_info_);
 
   // force update
   request_msg = new_storage_message(c_mock);
@@ -658,21 +582,21 @@ TEST_F(AconfigdTest, local_override_survive_update) {
 
 TEST_F(AconfigdTest, single_local_override_remove) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // local override enabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "true", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "true", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -701,44 +625,45 @@ TEST_F(AconfigdTest, single_local_override_remove) {
 
 TEST_F(AconfigdTest, readonly_flag_override) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_ro", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_ro", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Cannot update read only flag");
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_ro", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_ro", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Cannot update read only flag");
 }
 
 TEST_F(AconfigdTest, nonexist_flag_override) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
-  request_msg = flag_override_message("unknown", "enabled_rw", "false", false);
+  request_msg =
+      flag_override_message("unknown", "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Failed to find owning container");
 
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "unknown", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "unknown", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Flag does not exist");
 }
 
 TEST_F(AconfigdTest, nonexist_flag_query) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
@@ -755,21 +680,21 @@ TEST_F(AconfigdTest, nonexist_flag_query) {
 
 TEST_F(AconfigdTest, storage_reset) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // server override enabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "true", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "true", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -797,21 +722,21 @@ TEST_F(AconfigdTest, storage_reset) {
 
 TEST_F(AconfigdTest, list_package) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // server override disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "disabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override enabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "enabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "enabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -834,21 +759,21 @@ TEST_F(AconfigdTest, list_package) {
 
 TEST_F(AconfigdTest, list_container) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // server override test1.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "disabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override test2.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -886,21 +811,21 @@ TEST_F(AconfigdTest, list_container) {
 
 TEST_F(AconfigdTest, list_all) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_new_storage_return_message(return_msg, true);
 
   // server override test1.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_1", "disabled_rw", "true", false);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_1",
+                                      "disabled_rw", "true", false, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
   // local override test2.disabled_rw
-  request_msg = flag_override_message(
-      "com.android.aconfig.storage.test_2", "disabled_rw", "false", true);
+  request_msg = flag_override_message("com.android.aconfig.storage.test_2",
+                                      "disabled_rw", "false", true, false);
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_flag_override_return_message(return_msg);
 
@@ -938,7 +863,7 @@ TEST_F(AconfigdTest, list_all) {
 
 TEST_F(AconfigdTest, list_nonexist_package) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
@@ -951,7 +876,7 @@ TEST_F(AconfigdTest, list_nonexist_package) {
 
 TEST_F(AconfigdTest, list_nonexist_container) {
   auto a_mock = AconfigdMock();
-  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_);
+  auto c_mock = ContainerMock("mockup", package_map_, flag_map_, flag_val_, flag_info_);
 
   auto request_msg = new_storage_message(c_mock);
   auto return_msg = a_mock.SendRequestToSocket(request_msg);
@@ -960,31 +885,6 @@ TEST_F(AconfigdTest, list_nonexist_container) {
   request_msg = list_container_storage_message("unknown");
   return_msg = a_mock.SendRequestToSocket(request_msg);
   verify_error_message(return_msg, "Missing storage files object");
-}
-
-TEST_F(AconfigdTest, ota_flag_staging) {
-  auto a_mock = AconfigdMock();
-  auto request_msg = ota_flag_staging_message(
-      "mock_build_id",
-      {{"package_1", "flag_1", "true"},
-       {"package_2", "flag_1", "false"}});
-  auto return_msg = a_mock.SendRequestToSocket(request_msg);
-  verify_ota_staging_return_message(return_msg);
-  ASSERT_TRUE(FileExists(a_mock.flags_dir + "/ota.pb"));
-  auto pb = ReadPbFromFile<StorageRequestMessage::OTAFlagStagingMessage>(
-      a_mock.flags_dir + "/ota.pb");
-  ASSERT_TRUE(pb.ok());
-  ASSERT_EQ(pb->build_id(), "mock_build_id");
-  auto flags = pb->overrides();
-  ASSERT_EQ(flags.size(), 2);
-  auto flag = pb->overrides(0);
-  ASSERT_EQ(flag.package_name(), "package_1");
-  ASSERT_EQ(flag.flag_name(), "flag_1");
-  ASSERT_EQ(flag.flag_value(), "true");
-  flag = pb->overrides(1);
-  ASSERT_EQ(flag.package_name(), "package_2");
-  ASSERT_EQ(flag.flag_name(), "flag_1");
-  ASSERT_EQ(flag.flag_value(), "false");
 }
 
 } // namespace aconfigd
