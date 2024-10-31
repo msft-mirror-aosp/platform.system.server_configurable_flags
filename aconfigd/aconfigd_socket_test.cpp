@@ -128,9 +128,9 @@ class AconfigdSocketTest : public ::testing::Test {
     auto* msg = message->mutable_new_storage_message();
     auto test_dir = base::GetExecutableDirectory();
     msg->set_container("mockup");
-    msg->set_package_map(test_dir + "/tests/package.map");
-    msg->set_flag_map(test_dir + "/tests/flag.map");
-    msg->set_flag_value(test_dir + "/tests/flag.val");
+    msg->set_package_map(test_dir + "/tests/data/v1/package.map");
+    msg->set_flag_map(test_dir + "/tests/data/v1/flag.map");
+    msg->set_flag_value(test_dir + "/tests/data/v1/flag.val");
   }
 
   void add_flag_query_message(StorageRequestMessages& messages,
