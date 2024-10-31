@@ -15,9 +15,11 @@
  * limitations under the License.
  */
 
+#include "storage_files_manager.h"
+
 #include "aconfigd.h"
 #include "aconfigd_util.h"
-#include "storage_files_manager.h"
+#include "com_android_aconfig_new_storage.h"
 
 using namespace aconfig_storage;
 
@@ -38,14 +40,15 @@ namespace android {
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
-      const std::string& flag_val) {
+      const std::string& flag_val,
+      const std::string& flag_info) {
     if (all_storage_files_.count(container)) {
       return base::Error() << "Storage file object for " << container << " already exists";
     }
 
     auto result = base::Result<void>({});
     auto storage_files = std::make_unique<StorageFiles>(
-          container, package_map, flag_map, flag_val, root_dir_, result);
+          container, package_map, flag_map, flag_val, flag_info, root_dir_, result);
 
     if (!result.ok()) {
       return base::Error() << "Failed to create storage file object for " << container
@@ -74,7 +77,8 @@ namespace android {
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
-      const std::string& flag_val) {
+      const std::string& flag_val,
+      const std::string& flag_info) {
     if (!all_storage_files_.count(container)) {
       return base::Error() << "Failed to update storage files object for " << container
                      << ", it does not exist";
@@ -93,7 +97,8 @@ namespace android {
     // clean up existing storage files object and recreate
     (**storage_files).RemoveAllPersistFiles();
     all_storage_files_.erase(container);
-    storage_files = AddNewStorageFiles(container, package_map, flag_map, flag_val);
+    storage_files = AddNewStorageFiles(
+        container, package_map, flag_map, flag_val, flag_info);
     RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
 
     // reapply local overrides
@@ -143,11 +148,12 @@ namespace android {
       const std::string& container,
       const std::string& package_map,
       const std::string& flag_map,
-      const std::string& flag_val) {
+      const std::string& flag_val,
+      const std::string& flag_info) {
     bool new_container = !HasContainer(container);
     bool update_existing_container = false;
     if (!new_container) {
-      auto digest = GetFilesDigest({package_map, flag_map, flag_val});
+      auto digest = GetFilesDigest({package_map, flag_map, flag_val, flag_info});
       RETURN_IF_ERROR(digest, "Failed to get digest for " + container);
       auto storage_files = GetStorageFiles(container);
       RETURN_IF_ERROR(storage_files, "Failed to get storage files object");
@@ -163,11 +169,11 @@ namespace android {
 
     if (new_container) {
       auto storage_files = AddNewStorageFiles(
-          container, package_map, flag_map, flag_val);
+          container, package_map, flag_map, flag_val, flag_info);
       RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
     } else {
       auto storage_files = UpdateStorageFiles(
-          container, package_map, flag_map, flag_val);
+          container, package_map, flag_map, flag_val, flag_info);
       RETURN_IF_ERROR(storage_files, "Failed to update storage object for " + container);
     }
 
@@ -199,7 +205,7 @@ namespace android {
 
       if (available) {
         auto storage_files = AddNewStorageFiles(
-            container, record.package_map, record.flag_map, record.flag_val);
+            container, record.package_map, record.flag_map, record.flag_val, record.flag_info);
         RETURN_IF_ERROR(storage_files, "Failed to add a new storage object for " + container);
       }
     }
@@ -256,6 +262,7 @@ namespace android {
       record_pb->set_package_map(record.package_map);
       record_pb->set_flag_map(record.flag_map);
       record_pb->set_flag_val(record.flag_val);
+      record_pb->set_flag_info(record.flag_info);
       record_pb->set_digest(record.digest);
     }
     return WritePbToFile<PersistStorageRecords>(records_pb, file_name);
@@ -263,11 +270,9 @@ namespace android {
 
   /// apply flag override
   base::Result<void> StorageFilesManager::UpdateFlagValue(
-      const std::string& package_name,
-      const std::string& flag_name,
+      const std::string& package_name, const std::string& flag_name,
       const std::string& flag_value,
-      bool is_local_override) {
-
+      const StorageRequestMessage::FlagOverrideType override_type) {
     auto container = GetContainer(package_name);
     RETURN_IF_ERROR(container, "Failed to find owning container");
 
@@ -277,12 +282,36 @@ namespace android {
     auto context = (**storage_files).GetPackageFlagContext(package_name, flag_name);
     RETURN_IF_ERROR(context, "Failed to find package flag context");
 
-    if (is_local_override) {
-      auto update = (**storage_files).SetLocalFlagValue(*context, flag_value);
-      RETURN_IF_ERROR(update, "Failed to set local flag override");
-    } else {
-      auto update =(**storage_files).SetServerFlagValue(*context, flag_value);
-      RETURN_IF_ERROR(update, "Failed to set server flag value");
+    switch (override_type) {
+      case StorageRequestMessage::LOCAL_ON_REBOOT: {
+        auto update = (**storage_files).SetLocalFlagValue(*context, flag_value);
+        RETURN_IF_ERROR(update, "Failed to set local flag override");
+        break;
+      }
+      case StorageRequestMessage::SERVER_ON_REBOOT: {
+        auto update =
+            (**storage_files).SetServerFlagValue(*context, flag_value);
+        RETURN_IF_ERROR(update, "Failed to set server flag value");
+        break;
+      }
+      case StorageRequestMessage::LOCAL_IMMEDIATE: {
+        if (!com::android::aconfig_new_storage::
+                support_immediate_local_overrides()) {
+          return base::Error() << "local immediate override not supported";
+        }
+
+        auto updateOverride =
+            (**storage_files).SetLocalFlagValue(*context, flag_value);
+        RETURN_IF_ERROR(updateOverride, "Failed to set local flag override");
+        auto updateBootFile =
+            (**storage_files)
+                .WriteLocalOverrideToBootCopy(*context, flag_value);
+        RETURN_IF_ERROR(updateBootFile,
+                        "Failed to write local override to boot file");
+        break;
+      }
+      default:
+        return base::Error() << "unknown flag override type";
     }
 
     return {};
