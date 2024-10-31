@@ -166,7 +166,7 @@ static int aconfigd_start() {
       PLOG(ERROR) << "failed to establish connection";
       continue;
     }
-    LOG(INFO) << "received client requests";
+    LOG(DEBUG) << "received client requests";
 
     auto requests = receiveMessage(client_fd.get());
     if (!requests.ok()) {

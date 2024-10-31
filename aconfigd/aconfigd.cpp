@@ -335,7 +335,7 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a '" << OverrideTypeToStr(msg.override_type())
+      LOG(DEBUG) << "received a '" << OverrideTypeToStr(msg.override_type())
                 << "' flag override request for " << msg.package_name() << "/"
                 << msg.flag_name() << " to " << msg.flag_value();
       result = HandleFlagOverride(msg, return_message);
