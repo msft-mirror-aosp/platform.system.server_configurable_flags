@@ -101,10 +101,11 @@ Result<void> Aconfigd::HandleLocalOverrideRemoval(
     StorageReturnMessage& return_msg) {
   auto result = Result<void>();
   if (msg.remove_all()) {
-    result = storage_files_manager_->RemoveAllLocalOverrides();
+    result = storage_files_manager_->RemoveAllLocalOverrides(
+        msg.remove_override_type());
   } else {
     result = storage_files_manager_->RemoveFlagLocalOverride(
-        msg.package_name(), msg.flag_name());
+        msg.package_name(), msg.flag_name(), msg.remove_override_type());
   }
   RETURN_IF_ERROR(result, "");
   return_msg.mutable_remove_local_override_message();
