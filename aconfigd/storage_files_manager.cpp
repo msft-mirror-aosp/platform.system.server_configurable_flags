@@ -305,7 +305,7 @@ namespace android {
         RETURN_IF_ERROR(updateOverride, "Failed to set local flag override");
         auto updateBootFile =
             (**storage_files)
-                .WriteLocalOverrideToBootCopy(*context, flag_value);
+                .UpdateBootValueAndInfoImmediately(*context, flag_value, true);
         RETURN_IF_ERROR(updateBootFile,
                         "Failed to write local override to boot file");
         break;
@@ -343,9 +343,12 @@ namespace android {
   }
 
   /// remove all local overrides
-  base::Result<void> StorageFilesManager::RemoveAllLocalOverrides() {
+  base::Result<void> StorageFilesManager::RemoveAllLocalOverrides(
+      const StorageRequestMessage::RemoveOverrideType remove_override_type) {
     for (const auto& [container, storage_files] : all_storage_files_) {
-      auto update = storage_files->RemoveAllLocalFlagValue();
+      bool immediate =
+          remove_override_type == StorageRequestMessage::REMOVE_LOCAL_IMMEDIATE;
+      auto update = storage_files->RemoveAllLocalFlagValue(immediate);
       RETURN_IF_ERROR(update, "Failed to remove local overrides for " + container);
     }
     return {};
@@ -353,8 +356,8 @@ namespace android {
 
   /// remove a local override
   base::Result<void> StorageFilesManager::RemoveFlagLocalOverride(
-      const std::string& package,
-      const std::string& flag) {
+      const std::string& package, const std::string& flag,
+      const StorageRequestMessage::RemoveOverrideType remove_override_type) {
     auto container = GetContainer(package);
     RETURN_IF_ERROR(container, "Failed to find owning container");
 
@@ -364,7 +367,9 @@ namespace android {
     auto context = (**storage_files).GetPackageFlagContext(package, flag);
     RETURN_IF_ERROR(context, "Failed to find package flag context");
 
-    auto removed = (**storage_files).RemoveLocalFlagValue(*context);
+    bool immediate =
+        remove_override_type == StorageRequestMessage::REMOVE_LOCAL_IMMEDIATE;
+    auto removed = (**storage_files).RemoveLocalFlagValue(*context, immediate);
     RETURN_IF_ERROR(removed, "Failed to remove local override");
 
     return {};

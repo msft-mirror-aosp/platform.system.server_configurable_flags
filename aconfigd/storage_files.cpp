@@ -630,9 +630,10 @@ namespace android {
     return {};
   }
 
-  /// Write override immediately to boot val and info copies.
-  base::Result<void> StorageFiles::WriteLocalOverrideToBootCopy(
-      const PackageFlagContext& context, const std::string& flag_value) {
+  /// Set value and has_local_override for boot copy immediately.
+  base::Result<void> StorageFiles::UpdateBootValueAndInfoImmediately(
+      const PackageFlagContext& context, const std::string& flag_value,
+      bool has_local_override) {
     if (chmod(storage_record_.boot_flag_val.c_str(), 0644) == -1) {
       return base::ErrnoError() << "chmod() failed to set boot val to 0644";
     }
@@ -653,8 +654,9 @@ namespace android {
 
     auto flag_info_file =
         map_mutable_storage_file(storage_record_.boot_flag_info);
-    auto update_info_result = set_flag_has_local_override(
-        **flag_info_file, context.value_type, context.flag_index, true);
+    auto update_info_result =
+        set_flag_has_local_override(**flag_info_file, context.value_type,
+                                    context.flag_index, has_local_override);
     RETURN_IF_ERROR(update_info_result, "Failed to update boot flag info");
 
     if (chmod(storage_record_.boot_flag_info.c_str(), 0444) == -1) {
@@ -760,8 +762,7 @@ namespace android {
 
   /// remove a single flag local override, return if removed
   base::Result<bool> StorageFiles::RemoveLocalFlagValue(
-      const PackageFlagContext& context) {
-
+      const PackageFlagContext& context, bool immediate) {
     auto pb_file = storage_record_.local_overrides;
     auto pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
     if (!pb.ok()) {
@@ -780,6 +781,7 @@ namespace android {
       kept_override->set_flag_value(entry.flag_value());
     }
 
+    bool return_result;
     if (remaining_overrides.overrides_size() != pb->overrides_size()) {
       auto result = WritePbToFile<LocalFlagOverrides>(remaining_overrides, pb_file);
       if (!result.ok()) {
@@ -789,14 +791,32 @@ namespace android {
       auto update = SetHasLocalOverride(context, false);
       RETURN_IF_ERROR(update, "Failed to unset flag has local override");
 
-      return true;
+      return_result = true;
     } else {
-      return false;
+      return_result = false;
     }
+
+    if (immediate) {
+      auto attribute = GetFlagAttribute(context);
+      RETURN_IF_ERROR(
+          attribute,
+          "Failed to get flag attribute for removing override immediately");
+
+      auto value = ((*attribute) & FlagInfoBit::HasServerOverride)
+                       ? GetServerFlagValue(context)
+                       : GetDefaultFlagValue(context);
+      RETURN_IF_ERROR(value, "Failed to get server or default value");
+
+      auto update = UpdateBootValueAndInfoImmediately(context, *value, false);
+      RETURN_IF_ERROR(update,
+                      "Failed to remove local override boot flag value");
+    }
+
+    return return_result;
   }
 
   /// remove all local overrides
-  base::Result<void> StorageFiles::RemoveAllLocalFlagValue() {
+  base::Result<void> StorageFiles::RemoveAllLocalFlagValue(bool immediate) {
     auto pb_file = storage_record_.local_overrides;
     auto overrides_pb = ReadPbFromFile<LocalFlagOverrides>(pb_file);
     RETURN_IF_ERROR(overrides_pb, "Failed to read local overrides");
@@ -808,6 +828,23 @@ namespace android {
 
       auto update = SetHasLocalOverride(*context, false);
       RETURN_IF_ERROR(update, "Failed to unset flag has local override");
+
+      if (immediate) {
+        auto attribute = GetFlagAttribute(*context);
+        RETURN_IF_ERROR(
+            attribute,
+            "Failed to get flag attribute for removing override immediately");
+
+        auto value = ((*attribute) & FlagInfoBit::HasServerOverride)
+                         ? GetServerFlagValue(*context)
+                         : GetDefaultFlagValue(*context);
+        RETURN_IF_ERROR(value, "Failed to get server or default value");
+
+        auto boot_update =
+            UpdateBootValueAndInfoImmediately(*context, *value, false);
+        RETURN_IF_ERROR(boot_update,
+                        "Failed to remove local override boot flag value");
+      }
     }
 
     if (overrides_pb->overrides_size()) {
