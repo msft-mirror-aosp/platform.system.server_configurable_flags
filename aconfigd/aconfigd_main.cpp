@@ -21,7 +21,6 @@
 
 #include "com_android_aconfig_new_storage.h"
 #include "aconfigd.h"
-#include "aconfigd_util.h"
 
 using namespace android::aconfigd;
 using namespace android::base;
