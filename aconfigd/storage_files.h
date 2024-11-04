@@ -34,6 +34,7 @@ namespace android {
       std::string package_map;          // package.map on container
       std::string flag_map;             // flag.map on container
       std::string flag_val;             // flag.val on container
+      std::string flag_info;            // flag.info on container
       std::string persist_package_map;  // persist package.map (backup copy for OTA)
       std::string persist_flag_map;     // persist flag.map (backup copy for OTA)
       std::string persist_flag_val;     // persist flag.val
@@ -53,6 +54,7 @@ namespace android {
                    const std::string& package_map,
                    const std::string& flag_map,
                    const std::string& flag_val,
+                   const std::string& flag_info,
                    const std::string& root_dir,
                    base::Result<void>& status);
 
@@ -129,6 +131,11 @@ namespace android {
       base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
                                             const std::string& flag_value);
 
+      /// Set boot value and local_override info immediately
+      base::Result<void> UpdateBootValueAndInfoImmediately(
+          const PackageFlagContext& context, const std::string& flag_value,
+          bool has_local_override);
+
       /// local flag override, update local flag override pb filee
       base::Result<void> SetLocalFlagValue(const PackageFlagContext& context,
                                            const std::string& flag_value);
@@ -142,10 +149,11 @@ namespace android {
                                              bool has_local_override);
 
       /// remove a single flag local override, return if removed
-      base::Result<bool> RemoveLocalFlagValue(const PackageFlagContext& context);
+      base::Result<bool> RemoveLocalFlagValue(const PackageFlagContext& context,
+                                              bool immediate);
 
       /// remove all local overrides
-      base::Result<void> RemoveAllLocalFlagValue();
+      base::Result<void> RemoveAllLocalFlagValue(bool immediate);
 
       /// strcut for server flag value entries
       struct ServerOverride {
@@ -174,6 +182,7 @@ namespace android {
         bool is_readwrite;
         bool has_server_override;
         bool has_local_override;
+        bool has_boot_local_override;
       };
 
       /// list a flag

@@ -115,10 +115,6 @@ namespace android {
     /// Read OTA flag overrides to be applied for current build
     base::Result<std::vector<FlagOverride>> ReadOTAFlagOverridesToApply();
 
-    /// Write remaining OTA flag overrides back to pb file
-    base::Result<void> WriteRemainingOTAOverrides(
-        const std::vector<FlagOverride>& ota_flags);
-
     private:
 
     /// root storage dir
