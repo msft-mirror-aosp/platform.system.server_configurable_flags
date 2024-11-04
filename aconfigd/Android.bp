@@ -4,8 +4,34 @@ cc_binary {
         "aconfig_lib_cc_shared_link.defaults",
     ],
     srcs: [
-        "aconfigd.cpp",
         "aconfigd_main.cpp",
+    ],
+    static_libs: [
+        "libaconfigd_protos_cc",
+        "libaconfig_storage_file_cc",
+        "libaconfig_new_storage_flags",
+        "libaconfig_storage_read_api_cc",
+        "libaconfig_storage_write_api_cc",
+        // TODO(370864013): Remove this once the CTS annotation issue is fixed.
+        "cts_flags_tests_cc",
+    ],
+    shared_libs: [
+        "libaconfigd",
+        "libcutils",
+        "libprotobuf-cpp-lite",
+        "libbase",
+        "liblog",
+    ],
+    init_rc: ["aconfigd.rc"],
+}
+
+cc_library {
+    name: "libaconfigd",
+    defaults: [
+        "aconfig_lib_cc_shared_link.defaults",
+    ],
+    srcs: [
+        "aconfigd.cpp",
         "aconfigd_util.cpp",
         "storage_files.cpp",
         "storage_files_manager.cpp",
@@ -27,7 +53,7 @@ cc_binary {
         "libcrypto",
         "server_configurable_flags",
     ],
-    init_rc: ["aconfigd.rc"],
+    export_include_dirs: ["include"],
 }
 
 aconfig_declarations {
@@ -56,9 +82,6 @@ cc_test {
     srcs: [
         "aconfigd_test.cpp",
         "aconfigd_util.cpp",
-        "aconfigd.cpp",
-        "storage_files_manager.cpp",
-        "storage_files.cpp",
     ],
     static_libs: [
         "libflagtest",
@@ -68,12 +91,13 @@ cc_test {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
+        "libaconfigd",
     ],
     shared_libs: [
-        "libprotobuf-cpp-lite",
         "libbase",
         "liblog",
         "libcrypto",
+        "libprotobuf-cpp-lite",
         "server_configurable_flags",
     ],
     data: [
@@ -100,10 +124,6 @@ cc_test {
     team: "trendy_team_android_core_experiments",
     srcs: [
         "aconfigd_proton_collider_test.cpp",
-        "aconfigd_util.cpp",
-        "aconfigd.cpp",
-        "storage_files_manager.cpp",
-        "storage_files.cpp",
     ],
     static_libs: [
         "libflagtest",
@@ -113,6 +133,7 @@ cc_test {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
+        "libaconfigd",
     ],
     shared_libs: [
         "libprotobuf-cpp-lite",
