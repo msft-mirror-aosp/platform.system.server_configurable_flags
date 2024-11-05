@@ -190,3 +190,40 @@ java_library {
         "//apex_available:platform",
     ],
 }
+
+rust_defaults {
+    name: "aconfigd_system.defaults",
+    edition: "2021",
+    lints: "none",
+    rustlibs: [
+        "libaconfig_storage_file",
+        "libaconfig_storage_read_api",
+        "libaconfig_storage_write_api",
+        "libaconfigd_protos_rust",
+        "libanyhow",
+        "libclap",
+        "libmemmap2",
+        "liblog_rust",
+        "libprotobuf",
+        "libthiserror",
+    ],
+}
+
+rust_library {
+    name: "libaconfigd_system",
+    crate_name: "aconfigd_system",
+    defaults: ["aconfigd_system.defaults"],
+    srcs: ["src/lib.rs"],
+}
+
+rust_binary {
+    name: "aconfigd-system",
+    defaults: ["aconfigd_system.defaults"],
+    srcs: ["src/main.rs"],
+    rustlibs: [
+        "libaconfigd_system",
+        "libandroid_logger",
+        "librustutils",
+        "liblibc",
+    ],
+}
