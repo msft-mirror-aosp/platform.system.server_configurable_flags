@@ -21,7 +21,6 @@
 
 #include "com_android_aconfig_new_storage.h"
 #include "aconfigd.h"
-#include "aconfigd_util.h"
 
 using namespace android::aconfigd;
 using namespace android::base;
@@ -166,7 +165,7 @@ static int aconfigd_start() {
       PLOG(ERROR) << "failed to establish connection";
       continue;
     }
-    LOG(INFO) << "received client requests";
+    LOG(DEBUG) << "received client requests";
 
     auto requests = receiveMessage(client_fd.get());
     if (!requests.ok()) {
