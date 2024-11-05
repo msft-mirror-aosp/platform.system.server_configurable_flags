@@ -15,3 +15,13 @@ flag {
     description: "Support immediate local overrides."
     bug: "360205436"
 }
+
+flag {
+    name: "support_clear_local_overrides_immediately"
+    namespace: "core_experiments_team_internal"
+    description: "Support ability to clear local overrides immediately."
+    bug: "360205436"
+    metadata {
+        purpose: PURPOSE_BUGFIX
+    }
+}

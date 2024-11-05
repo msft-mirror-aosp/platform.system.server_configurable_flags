@@ -221,14 +221,14 @@ class AconfigdTest : public ::testing::Test {
   // setup test suites
   static void SetUpTestSuite() {
     auto test_dir = base::GetExecutableDirectory();
-    package_map_ = test_dir + "/tests/package.map";
-    flag_map_ = test_dir + "/tests/flag.map";
-    flag_val_ = test_dir + "/tests/flag.val";
-    flag_info_ = test_dir + "/tests/flag.info";
-    updated_package_map_ = test_dir + "/tests/updated_package.map";
-    updated_flag_map_ = test_dir + "/tests/updated_flag.map";
-    updated_flag_val_ = test_dir + "/tests/updated_flag.val";
-    updated_flag_info_ = test_dir + "/tests/updated_flag.info";
+    package_map_ = test_dir + "/tests/data/v1/package.map";
+    flag_map_ = test_dir + "/tests/data/v1/flag.map";
+    flag_val_ = test_dir + "/tests/data/v1/flag.val";
+    flag_info_ = test_dir + "/tests/data/v1/flag.info";
+    updated_package_map_ = test_dir + "/tests/data/v2/package.map";
+    updated_flag_map_ = test_dir + "/tests/data/v2/flag.map";
+    updated_flag_val_ = test_dir + "/tests/data/v2/flag.val";
+    updated_flag_info_ = test_dir + "/tests/data/v2/flag.info";
   }
 
   static std::string package_map_;

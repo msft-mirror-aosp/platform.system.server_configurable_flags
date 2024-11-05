@@ -120,11 +120,13 @@ namespace android {
           const std::vector<FlagOverride>& ota_flags);
 
       /// remove all local overrides
-      base::Result<void> RemoveAllLocalOverrides();
+      base::Result<void> RemoveAllLocalOverrides(
+          const StorageRequestMessage::RemoveOverrideType removeOverrideType);
 
       /// remove a local override
-      base::Result<void> RemoveFlagLocalOverride(const std::string& package,
-                                                 const std::string& flag);
+      base::Result<void> RemoveFlagLocalOverride(
+          const std::string& package, const std::string& flag,
+          const StorageRequestMessage::RemoveOverrideType removeOverrideType);
 
       /// list a flag
       base::Result<StorageFiles::FlagSnapshot> ListFlag(const std::string& package,

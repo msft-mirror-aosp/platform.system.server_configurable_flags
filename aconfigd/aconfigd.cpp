@@ -101,10 +101,11 @@ Result<void> Aconfigd::HandleLocalOverrideRemoval(
     StorageReturnMessage& return_msg) {
   auto result = Result<void>();
   if (msg.remove_all()) {
-    result = storage_files_manager_->RemoveAllLocalOverrides();
+    result = storage_files_manager_->RemoveAllLocalOverrides(
+        msg.remove_override_type());
   } else {
     result = storage_files_manager_->RemoveFlagLocalOverride(
-        msg.package_name(), msg.flag_name());
+        msg.package_name(), msg.flag_name(), msg.remove_override_type());
   }
   RETURN_IF_ERROR(result, "");
   return_msg.mutable_remove_local_override_message();
@@ -335,7 +336,7 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a '" << OverrideTypeToStr(msg.override_type())
+      LOG(DEBUG) << "received a '" << OverrideTypeToStr(msg.override_type())
                 << "' flag override request for " << msg.package_name() << "/"
                 << msg.flag_name() << " to " << msg.flag_value();
       result = HandleFlagOverride(msg, return_message);
