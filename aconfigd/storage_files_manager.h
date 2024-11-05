@@ -68,7 +68,8 @@ namespace android {
       base::Result<StorageFiles*> AddNewStorageFiles(const std::string& container,
                                                      const std::string& package_map,
                                                      const std::string& flag_map,
-                                                     const std::string& flag_val);
+                                                     const std::string& flag_val,
+                                                     const std::string& flag_info);
 
       /// restore storage files object from a storage record pb entry
       base::Result<void> RestoreStorageFiles(const PersistStorageRecord& pb);
@@ -77,13 +78,15 @@ namespace android {
       base::Result<void> UpdateStorageFiles(const std::string& container,
                                             const std::string& package_map,
                                             const std::string& flag_map,
-                                            const std::string& flag_val);
+                                            const std::string& flag_val,
+                                            const std::string& flag_info);
 
       /// add or update storage file set for a container
       base::Result<bool> AddOrUpdateStorageFiles(const std::string& container,
                                                  const std::string& package_map,
                                                  const std::string& flag_map,
-                                                 const std::string& flag_val);
+                                                 const std::string& flag_val,
+                                                 const std::string& flag_info);
 
       /// create boot copy
       base::Result<void> CreateStorageBootCopy(const std::string& container);
@@ -117,11 +120,13 @@ namespace android {
           const std::vector<FlagOverride>& ota_flags);
 
       /// remove all local overrides
-      base::Result<void> RemoveAllLocalOverrides();
+      base::Result<void> RemoveAllLocalOverrides(
+          const StorageRequestMessage::RemoveOverrideType removeOverrideType);
 
       /// remove a local override
-      base::Result<void> RemoveFlagLocalOverride(const std::string& package,
-                                                 const std::string& flag);
+      base::Result<void> RemoveFlagLocalOverride(
+          const std::string& package, const std::string& flag,
+          const StorageRequestMessage::RemoveOverrideType removeOverrideType);
 
       /// list a flag
       base::Result<StorageFiles::FlagSnapshot> ListFlag(const std::string& package,
