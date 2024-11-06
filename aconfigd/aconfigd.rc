@@ -28,3 +28,28 @@ service aconfigd /system/bin/aconfigd
     #turn it on when b/312444587 completes
     #reboot_on_failure reboot
     socket aconfigd stream 666 system system
+
+service system_aconfigd_mainline_init /system/bin/aconfigd-system mainline-init
+    class core
+    user system
+    group system
+    oneshot
+    disabled # does not start with the core class
+    file /dev/kmsg w
+
+service system_aconfigd_platform_init /system/bin/aconfigd-system mainline-init
+    class core
+    user system
+    group system
+    oneshot
+    disabled # does not start with the core class
+    file /dev/kmsg w
+
+service system_aconfigd_socket_service /system/bin/aconfigd-system start-socket
+    class core
+    user system
+    group system
+    oneshot
+    disabled # does not start with the core class
+    file /dev/kmsg w
+    socket aconfigd_system stream 666 system system
