@@ -4,6 +4,7 @@ cc_binary {
         "aconfigd_main.cpp",
     ],
     static_libs: [
+        "libaconfig_flags_cc",
         "libaconfigd_protos_cc",
         "libaconfig_storage_file_cc",
         "libaconfig_new_storage_flags",
@@ -20,6 +21,19 @@ cc_binary {
         "server_configurable_flags",
     ],
     init_rc: ["aconfigd.rc"],
+}
+
+rust_binary {
+    name: "aconfigd-system",
+    defaults: ["aconfigd_system.defaults"],
+    srcs: ["src/main.rs"],
+    rustlibs: [
+        "libaconfig_flags",
+        "libaconfigd_system",
+        "libandroid_logger",
+        "librustutils",
+        "liblibc",
+    ],
 }
 
 rust_library {
@@ -94,6 +108,7 @@ cc_library {
         "storage_files_manager.cpp",
     ],
     static_libs: [
+        "libaconfig_flags_cc",
         "libaconfigd_protos_cc",
         "libaconfig_storage_file_cc",
         "libaconfig_new_storage_flags",
@@ -238,6 +253,7 @@ java_library {
         "srcs/**/*.java",
     ],
     static_libs: [
+        "aconfig_flags_java",
         "aconfigd_java_proto_lib",
     ],
     min_sdk_version: "UpsideDownCake",
@@ -265,14 +281,3 @@ rust_defaults {
     ],
 }
 
-rust_binary {
-    name: "aconfigd-system",
-    defaults: ["aconfigd_system.defaults"],
-    srcs: ["src/main.rs"],
-    rustlibs: [
-        "libaconfigd_system",
-        "libandroid_logger",
-        "librustutils",
-        "liblibc",
-    ],
-}
