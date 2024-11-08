@@ -37,7 +37,7 @@ service system_aconfigd_mainline_init /system/bin/aconfigd-system mainline-init
     disabled # does not start with the core class
     file /dev/kmsg w
 
-service system_aconfigd_platform_init /system/bin/aconfigd-system mainline-init
+service system_aconfigd_platform_init /system/bin/aconfigd-system platform-init
     class core
     user system
     group system
