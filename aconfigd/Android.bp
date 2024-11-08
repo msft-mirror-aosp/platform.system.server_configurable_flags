@@ -25,6 +25,69 @@ cc_binary {
     init_rc: ["aconfigd.rc"],
 }
 
+rust_library {
+    name: "libaconfigd_system",
+    crate_name: "aconfigd_system",
+    defaults: ["aconfigd_system.defaults"],
+    srcs: ["lib.rs"],
+    rustlibs: [
+        "libcxx",
+        "libbase",
+        "libaconfigd_protos_rust",
+    ],
+    static_libs: [
+        "libcxx_aconfigd",
+        "libaconfigd_protos_cc",
+        "libaconfig_storage_file_cc",
+        "libaconfig_new_storage_flags",
+        "libaconfig_storage_read_api_cc",
+        "libaconfig_storage_write_api_cc",
+    ],
+    shared_libs: [
+        "libbase",
+        "libaconfigd",
+        "libprotobuf-cpp-lite",
+    ],
+}
+
+cc_library_static {
+    name: "libcxx_aconfigd",
+    srcs: ["libcxx_aconfigd.cpp"],
+    generated_headers: [
+        "cxx-bridge-header",
+        "libcxx_aconfigd_bridge_header",
+    ],
+    static_libs: [
+        "libaconfigd_protos_cc",
+        "libaconfig_storage_file_cc",
+        "libaconfig_new_storage_flags",
+        "libaconfig_storage_read_api_cc",
+        "libaconfig_storage_write_api_cc",
+    ],
+    shared_libs: [
+        "libaconfigd",
+        "libbase",
+        "libprotobuf-cpp-lite",
+    ],
+    generated_sources: ["libcxx_aconfigd_bridge_code"],
+}
+
+genrule {
+    name: "libcxx_aconfigd_bridge_code",
+    tools: ["cxxbridge"],
+    cmd: "$(location cxxbridge) $(in) > $(out)",
+    srcs: ["lib.rs"],
+    out: ["libcxx_aconfigd_cxx_generated.cc"],
+}
+
+genrule {
+    name: "libcxx_aconfigd_bridge_header",
+    tools: ["cxxbridge"],
+    cmd: "$(location cxxbridge) $(in) --header > $(out)",
+    srcs: ["lib.rs"],
+    out: ["lib.rs.h"],
+}
+
 cc_library {
     name: "libaconfigd",
     defaults: [
@@ -91,6 +154,7 @@ cc_test {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
+        "libaconfig_flags_cc",
         "libaconfigd",
     ],
     shared_libs: [
@@ -207,13 +271,6 @@ rust_defaults {
         "libprotobuf",
         "libthiserror",
     ],
-}
-
-rust_library {
-    name: "libaconfigd_system",
-    crate_name: "aconfigd_system",
-    defaults: ["aconfigd_system.defaults"],
-    srcs: ["src/lib.rs"],
 }
 
 rust_binary {
