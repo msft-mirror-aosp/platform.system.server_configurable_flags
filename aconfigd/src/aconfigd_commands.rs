@@ -14,8 +14,10 @@
  * limitations under the License.
  */
 
+use aconfigd_system::Aconfigd;
 use anyhow::{anyhow, bail, Result};
-use log::{debug, error};
+use log::{debug, error, info};
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
@@ -37,14 +39,37 @@ pub fn start_socket() -> Result<()> {
 
     let listener = UnixListener::from(fd);
 
-    // TODO: create aconfigd here
+    let aconfigd = Aconfigd::new(ACONFIGD_ROOT_DIR, STORAGE_RECORDS);
+    aconfigd
+        .initialize_in_memory_storage_records()
+        .map_err(|e| anyhow!("failed to init memory storage records: {e}"))?;
 
     debug!("start waiting for a new client connection through socket.");
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                let mut length_buffer = [0u8; 4];
+                stream.read_exact(&mut length_buffer)?;
+                let message_length = u32::from_be_bytes(length_buffer);
 
-                // TODO: handle client request here
+                let mut message_buffer = vec![0u8; message_length as usize];
+                stream.read_exact(&mut message_buffer)?;
+
+                match aconfigd.handle_socket_request(&message_buffer) {
+                    Ok(response_buffer) => {
+                        let mut response_length_buffer: [u8; 4] = [0; 4];
+                        let response_size = &response_buffer.len();
+                        response_length_buffer[0] = (response_size >> 24) as u8;
+                        response_length_buffer[1] = (response_size >> 16) as u8;
+                        response_length_buffer[2] = (response_size >> 8) as u8;
+                        response_length_buffer[3] = *response_size as u8;
+                        stream.write_all(&response_length_buffer)?;
+                        stream.write_all(&response_buffer)?;
+                    }
+                    Err(e) => {
+                        error!("failed to process socket request: {e}");
+                    }
+                }
             }
             Err(errmsg) => {
                 error!("failed to listen for an incoming message: {:?}", errmsg);
@@ -57,10 +82,14 @@ pub fn start_socket() -> Result<()> {
 
 /// initialize mainline module storage files
 pub fn mainline_init() -> Result<()> {
-    Ok(())
+    Aconfigd::new(ACONFIGD_ROOT_DIR, STORAGE_RECORDS)
+        .initialize_mainline_storage()
+        .map_err(|e| anyhow!("failed to init mainline storage: {e}"))
 }
 
 /// initialize platform storage files
 pub fn platform_init() -> Result<()> {
-    Ok(())
+    Aconfigd::new(ACONFIGD_ROOT_DIR, STORAGE_RECORDS)
+        .initialize_platform_storage()
+        .map_err(|e| anyhow!("failed to init platform storage: {e}"))
 }
