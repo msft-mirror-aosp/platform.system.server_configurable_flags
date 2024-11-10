@@ -11,6 +11,8 @@ cc_binary {
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
         "libaconfigd",
+        // TODO(370864013): Remove this once the CTS annotation issue is fixed.
+        "cts_flags_tests_cc",
     ],
     shared_libs: [
         "libcutils",
