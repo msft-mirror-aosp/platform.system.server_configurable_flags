@@ -19,9 +19,9 @@
 #include <cutils/sockets.h>
 #include <sys/un.h>
 
-#include "com_android_aconfig_new_storage.h"
 #include "aconfigd.h"
-#include "aconfigd_util.h"
+#include "com_android_aconfig_flags.h"
+#include "com_android_aconfig_new_storage.h"
 
 using namespace android::aconfigd;
 using namespace android::base;
@@ -166,7 +166,7 @@ static int aconfigd_start() {
       PLOG(ERROR) << "failed to establish connection";
       continue;
     }
-    LOG(INFO) << "received client requests";
+    LOG(DEBUG) << "received client requests";
 
     auto requests = receiveMessage(client_fd.get());
     if (!requests.ok()) {
@@ -198,6 +198,10 @@ static int aconfigd_start() {
 
 int main(int argc, char** argv) {
   if (!com::android::aconfig_new_storage::enable_aconfig_storage_daemon()) {
+    return 0;
+  }
+
+  if (com::android::aconfig::flags::enable_system_aconfigd_rust()) {
     return 0;
   }
 
