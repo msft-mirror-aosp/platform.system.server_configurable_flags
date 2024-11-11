@@ -1007,7 +1007,6 @@ namespace android {
       snapshots[idx].is_readwrite = flag.is_readwrite;
       snapshots[idx].has_server_override = flag.has_server_override;
       snapshots[idx].has_local_override = flag.has_local_override;
-      snapshots[idx].container = storage_record_.container;
     }
 
     // fill local value
