@@ -36,6 +36,7 @@ rust_binary {
         "librustutils",
         "liblibc",
     ],
+    native_coverage: false,
 }
 
 rust_library {
@@ -284,4 +285,3 @@ rust_defaults {
         "libthiserror",
     ],
 }
-
