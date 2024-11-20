@@ -295,11 +295,6 @@ namespace android {
         break;
       }
       case StorageRequestMessage::LOCAL_IMMEDIATE: {
-        if (!com::android::aconfig_new_storage::
-                support_immediate_local_overrides()) {
-          return base::Error() << "local immediate override not supported";
-        }
-
         auto updateOverride =
             (**storage_files).SetLocalFlagValue(*context, flag_value);
         RETURN_IF_ERROR(updateOverride, "Failed to set local flag override");
