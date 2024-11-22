@@ -91,7 +91,6 @@ cc_test {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
-        "libaconfig_flags_cc",
         "libaconfigd",
     ],
     shared_libs: [
