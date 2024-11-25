@@ -25,6 +25,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
+import com.android.aconfig.flags.Flags;
+
 /** @hide */
 public class AconfigdClientSocketImpl implements AconfigdClientSocket {
 
@@ -39,7 +41,10 @@ public class AconfigdClientSocketImpl implements AconfigdClientSocket {
     }
 
     AconfigdClientSocketImpl() {
-        this(new LocalSocketAddress("aconfigd", LocalSocketAddress.Namespace.RESERVED));
+        this(new LocalSocketAddress(
+                 Flags.enableSystemAconfigdRust()
+                     ? "aconfigd_system" : "aconfigd",
+                     LocalSocketAddress.Namespace.RESERVED));
     }
 
     /**
