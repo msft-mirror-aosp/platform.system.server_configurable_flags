@@ -14,8 +14,12 @@
  * limitations under the License.
  */
 
+use aconfigd_protos::ProtoStorageReturnMessage;
+use aconfigd_rust::aconfigd::Aconfigd;
+use aconfigd_system::Aconfigd as CXXAconfigd;
 use anyhow::{anyhow, bail, Result};
-use log::{debug, error};
+use log::{debug, error, info};
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixListener;
 use std::path::Path;
@@ -37,17 +41,65 @@ pub fn start_socket() -> Result<()> {
 
     let listener = UnixListener::from(fd);
 
-    // TODO: create aconfigd here
+    if aconfig_new_storage_flags::enable_full_rust_system_aconfigd() {
+        let mut aconfigd = Aconfigd::new(Path::new(ACONFIGD_ROOT_DIR), Path::new(STORAGE_RECORDS));
+        aconfigd.initialize_from_storage_record()?;
 
-    debug!("start waiting for a new client connection through socket.");
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-
-                // TODO: handle client request here
+        debug!("start waiting for a new client connection through socket.");
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    if let Err(errmsg) = aconfigd.handle_socket_request_from_stream(&mut stream) {
+                        error!("failed to handle socket request: {:?}", errmsg);
+                    }
+                }
+                Err(errmsg) => {
+                    error!("failed to listen for an incoming message: {:?}", errmsg);
+                }
             }
-            Err(errmsg) => {
-                error!("failed to listen for an incoming message: {:?}", errmsg);
+        }
+    } else {
+        let aconfigd = CXXAconfigd::new(ACONFIGD_ROOT_DIR, STORAGE_RECORDS);
+        aconfigd
+            .initialize_in_memory_storage_records()
+            .map_err(|e| anyhow!("failed to init memory storage records: {e}"))?;
+
+        debug!("start waiting for a new client connection through socket.");
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    let mut length_buffer = [0u8; 4];
+                    stream.read_exact(&mut length_buffer)?;
+                    let message_length = u32::from_be_bytes(length_buffer);
+
+                    let mut message_buffer = vec![0u8; message_length as usize];
+                    stream.read_exact(&mut message_buffer)?;
+
+                    let response_buffer = match aconfigd.handle_socket_request(&message_buffer) {
+                        Ok(response) => response,
+                        Err(e) => {
+                            error!("failed to process socket request: {e}");
+                            let mut return_msg = ProtoStorageReturnMessage::new();
+                            return_msg.set_error_message(format!(
+                                "failed to handle socket request: {:?}",
+                                e
+                            ));
+                            protobuf::Message::write_to_bytes(&return_msg)?
+                        }
+                    };
+
+                    let mut response_length_buffer: [u8; 4] = [0; 4];
+                    let response_size = &response_buffer.len();
+                    response_length_buffer[0] = (response_size >> 24) as u8;
+                    response_length_buffer[1] = (response_size >> 16) as u8;
+                    response_length_buffer[2] = (response_size >> 8) as u8;
+                    response_length_buffer[3] = *response_size as u8;
+                    stream.write_all(&response_length_buffer)?;
+                    stream.write_all(&response_buffer)?;
+                }
+                Err(errmsg) => {
+                    error!("failed to listen for an incoming message: {:?}", errmsg);
+                }
             }
         }
     }
@@ -57,10 +109,27 @@ pub fn start_socket() -> Result<()> {
 
 /// initialize mainline module storage files
 pub fn mainline_init() -> Result<()> {
-    Ok(())
+    if aconfig_new_storage_flags::enable_full_rust_system_aconfigd() {
+        let mut aconfigd = Aconfigd::new(Path::new(ACONFIGD_ROOT_DIR), Path::new(STORAGE_RECORDS));
+        aconfigd.initialize_from_storage_record()?;
+        Ok(aconfigd.initialize_mainline_storage()?)
+    } else {
+        CXXAconfigd::new(ACONFIGD_ROOT_DIR, STORAGE_RECORDS)
+            .initialize_mainline_storage()
+            .map_err(|e| anyhow!("failed to init mainline storage: {e}"))
+    }
 }
 
 /// initialize platform storage files
 pub fn platform_init() -> Result<()> {
-    Ok(())
+    if aconfig_new_storage_flags::enable_full_rust_system_aconfigd() {
+        let mut aconfigd = Aconfigd::new(Path::new(ACONFIGD_ROOT_DIR), Path::new(STORAGE_RECORDS));
+        aconfigd.remove_boot_files()?;
+        aconfigd.initialize_from_storage_record()?;
+        Ok(aconfigd.initialize_platform_storage()?)
+    } else {
+        CXXAconfigd::new(ACONFIGD_ROOT_DIR, STORAGE_RECORDS)
+            .initialize_platform_storage()
+            .map_err(|e| anyhow!("failed to init platform storage: {e}"))
+    }
 }
