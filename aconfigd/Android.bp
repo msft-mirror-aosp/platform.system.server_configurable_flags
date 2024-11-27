@@ -31,7 +31,9 @@ rust_binary {
     srcs: ["src/main.rs"],
     rustlibs: [
         "libaconfig_flags",
+        "libaconfig_new_storage_flags_rust",
         "libaconfigd_system",
+        "libaconfigd_rust",
         "libandroid_logger",
         "librustutils",
         "liblibc",
@@ -138,6 +140,12 @@ aconfig_declarations {
 
 cc_aconfig_library {
     name: "libaconfig_new_storage_flags",
+    aconfig_declarations: "aconfig_new_storage_flags",
+}
+
+rust_aconfig_library {
+    name: "libaconfig_new_storage_flags_rust",
+    crate_name: "aconfig_new_storage_flags",
     aconfig_declarations: "aconfig_new_storage_flags",
 }
 
