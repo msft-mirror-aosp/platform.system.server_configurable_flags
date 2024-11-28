@@ -226,7 +226,7 @@ public class AconfigdJavaUtils {
                                     res.end(tokens.pop());
                                     break;
                                 default:
-                                    Slog.w(
+                                    Slog.i(
                                             TAG,
                                             "Could not read undefined field: "
                                                     + res.getFieldNumber());
@@ -238,7 +238,7 @@ public class AconfigdJavaUtils {
                         Slog.w(TAG, "list request failed: " + errmsg);
                         break;
                     default:
-                        Slog.w(TAG, "Could not read undefined field: " + res.getFieldNumber());
+                        Slog.i(TAG, "Could not read undefined field: " + res.getFieldNumber());
                 }
             }
         } catch (IOException e) {
@@ -305,7 +305,7 @@ public class AconfigdJavaUtils {
                                     StorageReturnMessage.FlagQueryReturnMessage.IS_READWRITE));
                     break;
                 default:
-                    Slog.w(
+                    Slog.i(
                             TAG,
                             "Could not read undefined field: " + protoInputStream.getFieldNumber());
             }
