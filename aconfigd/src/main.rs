@@ -43,7 +43,7 @@ enum Command {
 }
 
 fn main() {
-    if !aconfig_flags::auto_generated::enable_system_aconfigd_rust() {
+    if !aconfig_new_storage_flags::enable_aconfig_storage_daemon() {
         info!("aconfigd_system is disabled, exiting");
         std::process::exit(0);
     }
