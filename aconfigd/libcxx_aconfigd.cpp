@@ -75,10 +75,8 @@ CppStringResult CppAconfigd::handle_socket_request(
     auto* return_msg = return_messages.add_msgs();
     auto result = impl->m_aconfigd->HandleSocketRequest(request, *return_msg);
     if (!result.ok()) {
-      CppStringResult cpp_result;
-      cpp_result.status = CppResultStatus::Err;
-      cpp_result.error_message = result.error().message();
-      return cpp_result;
+      auto* errmsg = return_msg->mutable_error_message();
+      *errmsg = result.error().message();
     }
   }
 
