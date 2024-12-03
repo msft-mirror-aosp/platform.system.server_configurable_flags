@@ -29,4 +29,5 @@ flag {
   namespace: "core_experiments_team_internal"
   bug: "369808805"
   description: "When enabled, launch aconfigd from config infra module."
+  is_fixed_read_only: true
 }
