@@ -39,7 +39,9 @@ public class AconfigdClientSocketImpl implements AconfigdClientSocket {
     }
 
     AconfigdClientSocketImpl() {
-        this(new LocalSocketAddress("aconfigd", LocalSocketAddress.Namespace.RESERVED));
+        this(new LocalSocketAddress(
+                     "aconfigd_system",
+                     LocalSocketAddress.Namespace.RESERVED));
     }
 
     /**
