@@ -122,6 +122,11 @@ rust_aconfig_library {
     name: "libaconfig_new_storage_flags_rust",
     crate_name: "aconfig_new_storage_flags",
     aconfig_declarations: "aconfig_new_storage_flags",
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    min_sdk_version: "34",
 }
 
 java_aconfig_library {
