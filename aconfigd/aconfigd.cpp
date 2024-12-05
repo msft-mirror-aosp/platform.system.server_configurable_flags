@@ -48,8 +48,62 @@ Result<void> Aconfigd::HandleOTAStaging(
     const StorageRequestMessage::OTAFlagStagingMessage& msg,
     StorageReturnMessage& return_msg) {
   auto ota_flags_pb_file = root_dir_ + "/flags/ota.pb";
+  auto stored_pb_result =
+      ReadPbFromFile<StorageRequestMessage::OTAFlagStagingMessage>(
+          ota_flags_pb_file);
+
+  if (!stored_pb_result.ok() ||
+      (msg.build_id() != (*stored_pb_result).build_id())) {
+    LOG(INFO) << "discarding staged flags from " +
+                     (*stored_pb_result).build_id() +
+                     "; staging new flags for " + msg.build_id();
+    auto result = WritePbToFile<StorageRequestMessage::OTAFlagStagingMessage>(
+        msg, ota_flags_pb_file);
+    RETURN_IF_ERROR(result, "Failed to stage OTA flags");
+    return_msg.mutable_ota_staging_message();
+    return {};
+  }
+
+  std::set<std::string> qualified_names;
+
+  std::map<std::string, android::aconfigd::FlagOverride> new_name_to_override;
+  for (const auto& flag_override : msg.overrides()) {
+    auto qualified_name =
+        flag_override.package_name() + "." + flag_override.flag_name();
+    new_name_to_override[qualified_name] = flag_override;
+
+    qualified_names.insert(qualified_name);
+  }
+
+  std::map<std::string, android::aconfigd::FlagOverride> prev_name_to_override;
+  for (const auto& flag_override : (*stored_pb_result).overrides()) {
+    auto qualified_name =
+        flag_override.package_name() + "." + flag_override.flag_name();
+    prev_name_to_override[qualified_name] = flag_override;
+
+    qualified_names.insert(qualified_name);
+  }
+
+  std::vector<android::aconfigd::FlagOverride> overrides;
+  for (const auto& qualified_name : qualified_names) {
+    if (new_name_to_override.contains(qualified_name)) {
+      overrides.push_back(new_name_to_override[qualified_name]);
+    } else {
+      overrides.push_back(prev_name_to_override[qualified_name]);
+    }
+  }
+
+  StorageRequestMessage::OTAFlagStagingMessage message_to_persist;
+  message_to_persist.set_build_id(msg.build_id());
+  for (const auto& flag_override : overrides) {
+    auto override_ = message_to_persist.add_overrides();
+    override_->set_flag_name(flag_override.flag_name());
+    override_->set_package_name(flag_override.package_name());
+    override_->set_flag_value(flag_override.flag_value());
+  }
+
   auto result = WritePbToFile<StorageRequestMessage::OTAFlagStagingMessage>(
-      msg, ota_flags_pb_file);
+      message_to_persist, ota_flags_pb_file);
   RETURN_IF_ERROR(result, "Failed to stage OTA flags");
   return_msg.mutable_ota_staging_message();
   return {};
@@ -101,10 +155,11 @@ Result<void> Aconfigd::HandleLocalOverrideRemoval(
     StorageReturnMessage& return_msg) {
   auto result = Result<void>();
   if (msg.remove_all()) {
-    result = storage_files_manager_->RemoveAllLocalOverrides();
+    result = storage_files_manager_->RemoveAllLocalOverrides(
+        msg.remove_override_type());
   } else {
     result = storage_files_manager_->RemoveFlagLocalOverride(
-        msg.package_name(), msg.flag_name());
+        msg.package_name(), msg.flag_name(), msg.remove_override_type());
   }
   RETURN_IF_ERROR(result, "");
   return_msg.mutable_remove_local_override_message();
@@ -242,34 +297,6 @@ Result<void> Aconfigd::InitializePlatformStorage() {
                     + container);
   }
 
-  // TODO remove this logic once new storage launch complete
-  // if flag enable_only_new_storage is true, writes a marker file
-  {
-    auto flags = storage_files_manager_->ListFlagsInPackage("com.android.aconfig.flags");
-    RETURN_IF_ERROR(flags, "Failed to list flags");
-    bool enable_only_new_storage = false;
-    for (const auto& flag : *flags) {
-      if (flag.flag_name == "enable_only_new_storage") {
-        enable_only_new_storage = (flag.boot_flag_value == "true");
-        break;
-      }
-    }
-    auto marker_file = std::string("/metadata/aconfig/boot/enable_only_new_storage");
-    if (enable_only_new_storage) {
-      if (!FileExists(marker_file)) {
-        int fd = open(marker_file.c_str(), O_CREAT, 0644);
-        if (fd == -1) {
-          return ErrnoError() << "failed to create marker file";
-        }
-        close(fd);
-      }
-    } else {
-      if (FileExists(marker_file)) {
-        unlink(marker_file.c_str());
-      }
-    }
-  }
-
   return {};
 }
 
@@ -335,7 +362,7 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a '" << OverrideTypeToStr(msg.override_type())
+      LOG(DEBUG) << "received a '" << OverrideTypeToStr(msg.override_type())
                 << "' flag override request for " << msg.package_name() << "/"
                 << msg.flag_name() << " to " << msg.flag_value();
       result = HandleFlagOverride(msg, return_message);

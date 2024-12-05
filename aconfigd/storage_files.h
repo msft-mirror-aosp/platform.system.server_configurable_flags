@@ -131,9 +131,10 @@ namespace android {
       base::Result<void> SetServerFlagValue(const PackageFlagContext& context,
                                             const std::string& flag_value);
 
-      /// write local override to boot flag file immediately
-      base::Result<void> WriteLocalOverrideToBootCopy(
-          const PackageFlagContext& context, const std::string& flag_value);
+      /// Set boot value and local_override info immediately
+      base::Result<void> UpdateBootValueAndInfoImmediately(
+          const PackageFlagContext& context, const std::string& flag_value,
+          bool has_local_override);
 
       /// local flag override, update local flag override pb filee
       base::Result<void> SetLocalFlagValue(const PackageFlagContext& context,
@@ -148,10 +149,11 @@ namespace android {
                                              bool has_local_override);
 
       /// remove a single flag local override, return if removed
-      base::Result<bool> RemoveLocalFlagValue(const PackageFlagContext& context);
+      base::Result<bool> RemoveLocalFlagValue(const PackageFlagContext& context,
+                                              bool immediate);
 
       /// remove all local overrides
-      base::Result<void> RemoveAllLocalFlagValue();
+      base::Result<void> RemoveAllLocalFlagValue(bool immediate);
 
       /// strcut for server flag value entries
       struct ServerOverride {
