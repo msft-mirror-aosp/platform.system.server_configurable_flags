@@ -43,7 +43,7 @@ enum Command {
 }
 
 fn main() {
-    if !aconfig_flags::auto_generated::enable_system_aconfigd_rust() {
+    if !aconfig_new_storage_flags::enable_aconfig_storage_daemon() {
         info!("aconfigd_system is disabled, exiting");
         std::process::exit(0);
     }
@@ -70,7 +70,13 @@ fn main() {
     let command_return = match cli.command {
         Command::StartSocket => aconfigd_commands::start_socket(),
         Command::PlatformInit => aconfigd_commands::platform_init(),
-        Command::MainlineInit => aconfigd_commands::mainline_init(),
+        Command::MainlineInit => {
+            if aconfig_new_storage_flags::enable_aconfigd_from_mainline() {
+                info!("aconfigd_mainline is enabled, skipping mainline init");
+                std::process::exit(1);
+            }
+            aconfigd_commands::mainline_init()
+        }
     };
 
     if let Err(errmsg) = command_return {

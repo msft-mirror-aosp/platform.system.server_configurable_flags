@@ -1,42 +1,17 @@
-cc_binary {
-    name: "aconfigd",
-    srcs: [
-        "aconfigd_main.cpp",
-    ],
-    static_libs: [
-        "libaconfig_flags_cc",
-        "libaconfigd_protos_cc",
-        "libaconfig_storage_file_cc",
-        "libaconfig_new_storage_flags",
-        "libaconfig_storage_read_api_cc",
-        "libaconfig_storage_write_api_cc",
-        "libaconfigd",
-        // TODO(370864013): Remove this once the CTS annotation issue is fixed.
-        "cts_flags_tests_cc",
-    ],
-    shared_libs: [
-        "libcutils",
-        "libprotobuf-cpp-lite",
-        "libbase",
-        "liblog",
-        "libcrypto",
-        "server_configurable_flags",
-    ],
-    init_rc: ["aconfigd.rc"],
-}
-
 rust_binary {
     name: "aconfigd-system",
     defaults: ["aconfigd_system.defaults"],
     srcs: ["src/main.rs"],
     rustlibs: [
-        "libaconfig_flags",
+        "libaconfig_new_storage_flags_rust",
         "libaconfigd_system",
+        "libaconfigd_rust",
         "libandroid_logger",
         "librustutils",
         "liblibc",
     ],
     native_coverage: false,
+    init_rc: ["aconfigd.rc"],
 }
 
 rust_library {
@@ -117,6 +92,8 @@ cc_library {
         "libaconfig_new_storage_flags",
         "libaconfig_storage_read_api_cc",
         "libaconfig_storage_write_api_cc",
+        // TODO(370864013): Remove this once the CTS annotation issue is fixed.
+        "cts_flags_tests_cc",
     ],
     shared_libs: [
         "libcutils",
@@ -139,6 +116,17 @@ aconfig_declarations {
 cc_aconfig_library {
     name: "libaconfig_new_storage_flags",
     aconfig_declarations: "aconfig_new_storage_flags",
+}
+
+rust_aconfig_library {
+    name: "libaconfig_new_storage_flags_rust",
+    crate_name: "aconfig_new_storage_flags",
+    aconfig_declarations: "aconfig_new_storage_flags",
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    min_sdk_version: "34",
 }
 
 java_aconfig_library {
@@ -256,7 +244,6 @@ java_library {
         "srcs/**/*.java",
     ],
     static_libs: [
-        "aconfig_flags_java",
         "aconfigd_java_proto_lib",
     ],
     min_sdk_version: "UpsideDownCake",
