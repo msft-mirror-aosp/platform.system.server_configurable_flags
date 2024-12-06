@@ -5,6 +5,10 @@
       "name": "aconfigd_test"
     },
     {
+      // aconfigd proton collider unit tests
+      "name": "aconfigd_proton_collider_test"
+    },
+    {
       // aconfigd java utils test
       "name": "aconfigd_java_utils_test"
     }

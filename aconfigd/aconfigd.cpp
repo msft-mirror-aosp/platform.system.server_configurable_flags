@@ -48,8 +48,62 @@ Result<void> Aconfigd::HandleOTAStaging(
     const StorageRequestMessage::OTAFlagStagingMessage& msg,
     StorageReturnMessage& return_msg) {
   auto ota_flags_pb_file = root_dir_ + "/flags/ota.pb";
+  auto stored_pb_result =
+      ReadPbFromFile<StorageRequestMessage::OTAFlagStagingMessage>(
+          ota_flags_pb_file);
+
+  if (!stored_pb_result.ok() ||
+      (msg.build_id() != (*stored_pb_result).build_id())) {
+    LOG(INFO) << "discarding staged flags from " +
+                     (*stored_pb_result).build_id() +
+                     "; staging new flags for " + msg.build_id();
+    auto result = WritePbToFile<StorageRequestMessage::OTAFlagStagingMessage>(
+        msg, ota_flags_pb_file);
+    RETURN_IF_ERROR(result, "Failed to stage OTA flags");
+    return_msg.mutable_ota_staging_message();
+    return {};
+  }
+
+  std::set<std::string> qualified_names;
+
+  std::map<std::string, android::aconfigd::FlagOverride> new_name_to_override;
+  for (const auto& flag_override : msg.overrides()) {
+    auto qualified_name =
+        flag_override.package_name() + "." + flag_override.flag_name();
+    new_name_to_override[qualified_name] = flag_override;
+
+    qualified_names.insert(qualified_name);
+  }
+
+  std::map<std::string, android::aconfigd::FlagOverride> prev_name_to_override;
+  for (const auto& flag_override : (*stored_pb_result).overrides()) {
+    auto qualified_name =
+        flag_override.package_name() + "." + flag_override.flag_name();
+    prev_name_to_override[qualified_name] = flag_override;
+
+    qualified_names.insert(qualified_name);
+  }
+
+  std::vector<android::aconfigd::FlagOverride> overrides;
+  for (const auto& qualified_name : qualified_names) {
+    if (new_name_to_override.contains(qualified_name)) {
+      overrides.push_back(new_name_to_override[qualified_name]);
+    } else {
+      overrides.push_back(prev_name_to_override[qualified_name]);
+    }
+  }
+
+  StorageRequestMessage::OTAFlagStagingMessage message_to_persist;
+  message_to_persist.set_build_id(msg.build_id());
+  for (const auto& flag_override : overrides) {
+    auto override_ = message_to_persist.add_overrides();
+    override_->set_flag_name(flag_override.flag_name());
+    override_->set_package_name(flag_override.package_name());
+    override_->set_flag_value(flag_override.flag_value());
+  }
+
   auto result = WritePbToFile<StorageRequestMessage::OTAFlagStagingMessage>(
-      msg, ota_flags_pb_file);
+      message_to_persist, ota_flags_pb_file);
   RETURN_IF_ERROR(result, "Failed to stage OTA flags");
   return_msg.mutable_ota_staging_message();
   return {};
@@ -60,7 +114,8 @@ Result<void> Aconfigd::HandleNewStorage(
     const StorageRequestMessage::NewStorageMessage& msg,
     StorageReturnMessage& return_msg) {
   auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value());
+      msg.container(), msg.package_map(), msg.flag_map(), msg.flag_value(),
+      msg.flag_info());
   RETURN_IF_ERROR(updated, "Failed to add or update container");
 
   auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
@@ -100,10 +155,11 @@ Result<void> Aconfigd::HandleLocalOverrideRemoval(
     StorageReturnMessage& return_msg) {
   auto result = Result<void>();
   if (msg.remove_all()) {
-    result = storage_files_manager_->RemoveAllLocalOverrides();
+    result = storage_files_manager_->RemoveAllLocalOverrides(
+        msg.remove_override_type());
   } else {
     result = storage_files_manager_->RemoveFlagLocalOverride(
-        msg.package_name(), msg.flag_name());
+        msg.package_name(), msg.flag_name(), msg.remove_override_type());
   }
   RETURN_IF_ERROR(result, "");
   return_msg.mutable_remove_local_override_message();
@@ -158,6 +214,7 @@ Result<void> Aconfigd::HandleListStorage(
     flag_msg->set_is_readwrite(flag.is_readwrite);
     flag_msg->set_has_server_override(flag.has_server_override);
     flag_msg->set_has_local_override(flag.has_local_override);
+    flag_msg->set_has_boot_local_override(flag.has_boot_local_override);
   }
   return {};
 }
@@ -175,50 +232,16 @@ Result<std::vector<FlagOverride>> Aconfigd::ReadOTAFlagOverridesToApply() {
       for (const auto& entry : ota_flags_pb->overrides()) {
         ota_flags.push_back(entry);
       }
+      // delete staged ota flags file if it matches current build id, so that
+      // it will not be reapplied in the future boots
+      unlink(ota_flags_pb_file.c_str());
     }
   }
   return ota_flags;
 }
 
-/// Write remaining OTA flag overrides back to pb file
-Result<void> Aconfigd::WriteRemainingOTAOverrides(
-    const std::vector<FlagOverride>& ota_flags) {
-  auto ota_flags_pb_file = root_dir_ + "/flags/ota.pb";
-
-  if (!ota_flags.empty()) {
-    auto ota_flags_pb = StorageRequestMessage::OTAFlagStagingMessage();
-    auto build_id = GetProperty("ro.build.fingerprint", "");
-    ota_flags_pb.set_build_id(build_id);
-    for (auto const& entry : ota_flags) {
-      auto* flag = ota_flags_pb.add_overrides();
-      flag->set_package_name(entry.package_name());
-      flag->set_flag_name(entry.flag_name());
-      flag->set_flag_value(entry.flag_value());
-    }
-    auto result = WritePbToFile<StorageRequestMessage::OTAFlagStagingMessage>(
-        ota_flags_pb, ota_flags_pb_file);
-    RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
-  } else {
-    if (FileExists(ota_flags_pb_file)) {
-      unlink(ota_flags_pb_file.c_str());
-    }
-  }
-
-  return {};
-}
-
 /// Initialize in memory aconfig storage records
 Result<void> Aconfigd::InitializeInMemoryStorageRecords() {
-  // remove old records pb
-  if (FileExists("/metadata/aconfig/persistent_storage_file_records.pb")) {
-    unlink("/metadata/aconfig/persistent_storage_file_records.pb");
-  }
-
-  // remove old records pb
-  if (FileExists("/metadata/aconfig/persist_storage_file_records.pb")) {
-    unlink("/metadata/aconfig/persist_storage_file_records.pb");
-  }
-
   auto records_pb = ReadPbFromFile<PersistStorageRecords>(persist_storage_records_);
   RETURN_IF_ERROR(records_pb, "Unable to read persistent storage records");
   for (const auto& entry : records_pb->records()) {
@@ -239,23 +262,23 @@ Result<void> Aconfigd::InitializePlatformStorage() {
   RETURN_IF_ERROR(ota_flags, "Failed to get remaining staged OTA flags");
   bool apply_ota_flag = !(ota_flags->empty());
 
-  auto value_files = std::vector<std::pair<std::string, std::string>>{
+  auto partitions = std::vector<std::pair<std::string, std::string>>{
     {"system", "/system/etc/aconfig"},
-    {"system_ext", "/system_ext/etc/aconfig"},
     {"vendor", "/vendor/etc/aconfig"},
     {"product", "/product/etc/aconfig"}};
 
-  for (auto const& [container, storage_dir] : value_files) {
+  for (auto const& [container, storage_dir] : partitions) {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
+    auto info_file = std::string(storage_dir) + "/flag.info";
 
     if (!FileNonZeroSize(value_file)) {
       continue;
     }
 
     auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-        container, package_file, flag_file, value_file);
+        container, package_file, flag_file, value_file, info_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
 
@@ -274,11 +297,6 @@ Result<void> Aconfigd::InitializePlatformStorage() {
                     + container);
   }
 
-  if (apply_ota_flag) {
-    auto result = WriteRemainingOTAOverrides(*ota_flags);
-    RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
-  }
-
   return {};
 }
 
@@ -286,10 +304,6 @@ Result<void> Aconfigd::InitializePlatformStorage() {
 Result<void> Aconfigd::InitializeMainlineStorage() {
   auto init_result = InitializeInMemoryStorageRecords();
   RETURN_IF_ERROR(init_result, "Failed to init from persist stoage records");
-
-  auto ota_flags = ReadOTAFlagOverridesToApply();
-  RETURN_IF_ERROR(ota_flags, "Failed to get remaining staged OTA flags");
-  bool apply_ota_flag = !(ota_flags->empty());
 
   auto apex_dir = std::unique_ptr<DIR, int (*)(DIR*)>(opendir("/apex"), closedir);
   if (!apex_dir) {
@@ -309,21 +323,16 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
     auto package_file = std::string(storage_dir) + "/package.map";
     auto flag_file = std::string(storage_dir) + "/flag.map";
     auto value_file = std::string(storage_dir) + "/flag.val";
+    auto info_file = std::string(storage_dir) + "/flag.info";
 
     if (!FileExists(value_file) || !FileNonZeroSize(value_file)) {
       continue;
     }
 
     auto updated = storage_files_manager_->AddOrUpdateStorageFiles(
-        container, package_file, flag_file, value_file);
+        container, package_file, flag_file, value_file, info_file);
     RETURN_IF_ERROR(updated, "Failed to add or update storage for container "
                     + container);
-
-    if (apply_ota_flag) {
-      ota_flags = storage_files_manager_->ApplyOTAFlagsForContainer(
-          container, *ota_flags);
-      RETURN_IF_ERROR(ota_flags, "Failed to apply staged OTA flags");
-    }
 
     auto write_result = storage_files_manager_->WritePersistStorageRecordsToFile(
         persist_storage_records_);
@@ -334,30 +343,7 @@ Result<void> Aconfigd::InitializeMainlineStorage() {
                     + container);
   }
 
-  if (apply_ota_flag) {
-    auto result = WriteRemainingOTAOverrides(*ota_flags);
-    RETURN_IF_ERROR(result, "Failed to write remaining staged OTA flags");
-  }
-
   return {};
-}
-
-std::string message_type_display(
-    const StorageRequestMessage::FlagOverrideType override_type) {
-  switch (override_type) {
-    case StorageRequestMessage::LOCAL_IMMEDIATE: {
-      return "local immediate";
-    }
-    case StorageRequestMessage::LOCAL_ON_REBOOT: {
-      return "local on reboot";
-    }
-    case StorageRequestMessage::SERVER_ON_REBOOT: {
-      return "server on reboot";
-    }
-    default: {
-      return "unknown";
-    }
-  }
 }
 
 /// Handle incoming messages to aconfigd socket
@@ -376,7 +362,7 @@ Result<void> Aconfigd::HandleSocketRequest(const StorageRequestMessage& message,
     }
     case StorageRequestMessage::kFlagOverrideMessage: {
       auto msg = message.flag_override_message();
-      LOG(INFO) << "received a '" << message_type_display(msg.override_type())
+      LOG(DEBUG) << "received a '" << OverrideTypeToStr(msg.override_type())
                 << "' flag override request for " << msg.package_name() << "/"
                 << msg.flag_name() << " to " << msg.flag_value();
       result = HandleFlagOverride(msg, return_message);
