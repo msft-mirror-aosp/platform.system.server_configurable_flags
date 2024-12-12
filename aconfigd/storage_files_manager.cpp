@@ -17,6 +17,8 @@
 
 #include "storage_files_manager.h"
 
+#include <android-base/logging.h>
+
 #include "aconfigd.h"
 #include "aconfigd_util.h"
 #include "com_android_aconfig_new_storage.h"
@@ -327,8 +329,10 @@ namespace android {
         auto result = UpdateFlagValue(entry.package_name(),
                                       entry.flag_name(),
                                       entry.flag_value());
-        RETURN_IF_ERROR(result, "Failed to apply staged OTA flag " + entry.package_name()
-                        + "/" + entry.flag_name());
+        if (!result.ok()) {
+          LOG(ERROR) << "Failed to apply staged OTA flag " << entry.package_name()
+                     << "/" << entry.flag_name() << ": " << result.error();
+        }
       } else {
         remaining_ota_flags.push_back(entry);
       }
