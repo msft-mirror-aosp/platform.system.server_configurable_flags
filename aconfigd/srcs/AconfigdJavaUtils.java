@@ -65,15 +65,35 @@ public class AconfigdJavaUtils {
             String packageName,
             String flagName,
             String flagValue,
-            boolean isLocal) {
+            long overrideType) {
         long msgsToken = proto.start(StorageRequestMessages.MSGS);
         long msgToken = proto.start(StorageRequestMessage.FLAG_OVERRIDE_MESSAGE);
         proto.write(StorageRequestMessage.FlagOverrideMessage.PACKAGE_NAME, packageName);
         proto.write(StorageRequestMessage.FlagOverrideMessage.FLAG_NAME, flagName);
         proto.write(StorageRequestMessage.FlagOverrideMessage.FLAG_VALUE, flagValue);
-        proto.write(StorageRequestMessage.FlagOverrideMessage.IS_LOCAL, isLocal);
+        proto.write(StorageRequestMessage.FlagOverrideMessage.OVERRIDE_TYPE, overrideType);
         proto.end(msgToken);
         proto.end(msgsToken);
+    }
+
+    /**
+     * Send a request to aconfig storage to remove a flag local override.
+     *
+     * @param proto
+     * @param packageName the package of the flag
+     * @param flagName the name of the flag
+     *
+     * @hide
+     */
+    public static void writeFlagOverrideRemovalRequest(
+        ProtoOutputStream proto, String packageName, String flagName) {
+      long msgsToken = proto.start(StorageRequestMessages.MSGS);
+      long msgToken = proto.start(StorageRequestMessage.REMOVE_LOCAL_OVERRIDE_MESSAGE);
+      proto.write(StorageRequestMessage.RemoveLocalOverrideMessage.PACKAGE_NAME, packageName);
+      proto.write(StorageRequestMessage.RemoveLocalOverrideMessage.FLAG_NAME, flagName);
+      proto.write(StorageRequestMessage.RemoveLocalOverrideMessage.REMOVE_ALL, false);
+      proto.end(msgToken);
+      proto.end(msgsToken);
     }
 
     /**
@@ -144,7 +164,12 @@ public class AconfigdJavaUtils {
                 }
                 String packageName = fullFlagName.substring(0, idx);
                 String flagName = fullFlagName.substring(idx + 1);
-                writeFlagOverrideRequest(requests, packageName, flagName, stagedValue, isLocal);
+                long overrideType =
+                        isLocal
+                                ? StorageRequestMessage.LOCAL_ON_REBOOT
+                                : StorageRequestMessage.SERVER_ON_REBOOT;
+                writeFlagOverrideRequest(requests, packageName, flagName, stagedValue,
+                    overrideType);
                 ++num_requests;
             }
         }
@@ -201,7 +226,7 @@ public class AconfigdJavaUtils {
                                     res.end(tokens.pop());
                                     break;
                                 default:
-                                    Slog.w(
+                                    Slog.i(
                                             TAG,
                                             "Could not read undefined field: "
                                                     + res.getFieldNumber());
@@ -213,7 +238,7 @@ public class AconfigdJavaUtils {
                         Slog.w(TAG, "list request failed: " + errmsg);
                         break;
                     default:
-                        Slog.w(TAG, "Could not read undefined field: " + res.getFieldNumber());
+                        Slog.i(TAG, "Could not read undefined field: " + res.getFieldNumber());
                 }
             }
         } catch (IOException e) {
@@ -280,7 +305,7 @@ public class AconfigdJavaUtils {
                                     StorageReturnMessage.FlagQueryReturnMessage.IS_READWRITE));
                     break;
                 default:
-                    Slog.w(
+                    Slog.i(
                             TAG,
                             "Could not read undefined field: " + protoInputStream.getFieldNumber());
             }
