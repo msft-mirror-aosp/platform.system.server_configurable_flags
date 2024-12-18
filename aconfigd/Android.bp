@@ -10,6 +10,10 @@ rust_binary {
         "librustutils",
         "liblibc",
     ],
+    cfgs: select(release_flag("RELEASE_DISABLE_SYSTEM_ACONFIGD_SOCKET"), {
+        true: ["disable_system_aconfigd_socket"],
+        default: [],
+    }),
     native_coverage: false,
     init_rc: ["aconfigd.rc"],
 }
