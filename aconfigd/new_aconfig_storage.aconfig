@@ -8,3 +8,26 @@ flag {
   bug: "312444587"
   is_fixed_read_only: true
 }
+
+flag {
+    name: "support_immediate_local_overrides"
+    namespace: "core_experiments_team_internal"
+    description: "Support immediate local overrides."
+    bug: "360205436"
+}
+
+flag {
+    name: "enable_full_rust_system_aconfigd"
+    namespace: "core_experiments_team_internal"
+    description: "enable full rust implementation aconfigd"
+    is_fixed_read_only: true
+    bug: "312444587"
+}
+
+flag {
+  name: "enable_aconfigd_from_mainline"
+  namespace: "core_experiments_team_internal"
+  bug: "369808805"
+  description: "When enabled, launch aconfigd from config infra module."
+  is_fixed_read_only: true
+}
