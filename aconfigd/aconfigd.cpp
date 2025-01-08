@@ -14,17 +14,22 @@
  * limitations under the License.
  */
 
-#include <memory>
-#include <string>
-#include <dirent.h>
+#include "aconfigd.h"
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/properties.h>
+#include <dirent.h>
 
-#include "storage_files_manager.h"
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
 #include "aconfigd_util.h"
-#include "aconfigd.h"
+#include "storage_files_manager.h"
 
 using namespace android::base;
 
@@ -146,7 +151,6 @@ Result<void> Aconfigd::HandleFlagQuery(
   result_msg->set_has_server_override(snapshot->has_server_override);
   result_msg->set_is_readwrite(snapshot->is_readwrite);
   result_msg->set_has_local_override(snapshot->has_local_override);
-  result_msg->set_container(snapshot->container);
   return {};
 }
 
@@ -214,7 +218,6 @@ Result<void> Aconfigd::HandleListStorage(
     flag_msg->set_is_readwrite(flag.is_readwrite);
     flag_msg->set_has_server_override(flag.has_server_override);
     flag_msg->set_has_local_override(flag.has_local_override);
-    flag_msg->set_container(flag.container);
   }
   return {};
 }
@@ -295,6 +298,34 @@ Result<void> Aconfigd::InitializePlatformStorage() {
     auto copied = storage_files_manager_->CreateStorageBootCopy(container);
     RETURN_IF_ERROR(copied, "Failed to create boot snapshot for container "
                     + container);
+  }
+
+  // TODO remove this logic once new storage launch complete
+  // if flag enable_only_new_storage is true, writes a marker file
+  {
+    auto flags = storage_files_manager_->ListFlagsInPackage("com.android.aconfig.flags");
+    RETURN_IF_ERROR(flags, "Failed to list flags");
+    bool enable_only_new_storage = false;
+    for (const auto& flag : *flags) {
+      if (flag.flag_name == "enable_only_new_storage") {
+        enable_only_new_storage = (flag.boot_flag_value == "true");
+        break;
+      }
+    }
+    auto marker_file = std::string("/metadata/aconfig/boot/enable_only_new_storage");
+    if (enable_only_new_storage) {
+      if (!FileExists(marker_file)) {
+        int fd = open(marker_file.c_str(), O_CREAT, 0644);
+        if (fd == -1) {
+          return ErrnoError() << "failed to create marker file";
+        }
+        close(fd);
+      }
+    } else {
+      if (FileExists(marker_file)) {
+        unlink(marker_file.c_str());
+      }
+    }
   }
 
   return {};
