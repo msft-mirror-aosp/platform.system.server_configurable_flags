@@ -49,8 +49,8 @@ fn main() {
     }
 
     // SAFETY: nobody has taken ownership of the inherited FDs yet.
-    // This needs to be called before logger initialization as logger setup will create a
-    // file descriptor.
+    // This needs to be called before logger initialization as logger setup will
+    // create a file descriptor.
     unsafe {
         if let Err(errmsg) = rustutils::inherited_fd::init_once() {
             error!("failed to run init_once for inherited fds: {:?}.", errmsg);
@@ -68,7 +68,15 @@ fn main() {
 
     let cli = Cli::parse();
     let command_return = match cli.command {
-        Command::StartSocket => aconfigd_commands::start_socket(),
+        Command::StartSocket => {
+            if cfg!(disable_system_aconfigd_socket) {
+                info!("aconfigd_system is build-disabled, exiting");
+                Ok(())
+            } else {
+                info!("aconfigd_system is build-enabled, starting socket");
+                aconfigd_commands::start_socket()
+            }
+        }
         Command::PlatformInit => aconfigd_commands::platform_init(),
         Command::MainlineInit => {
             if aconfig_new_storage_flags::enable_aconfigd_from_mainline() {
