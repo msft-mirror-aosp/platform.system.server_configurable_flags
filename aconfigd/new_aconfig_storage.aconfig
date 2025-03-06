@@ -41,3 +41,14 @@ flag {
   description: "When enabled, launch aconfigd from config infra module."
   is_fixed_read_only: true
 }
+
+flag {
+  name: "bluetooth_flag_value_bug_fix"
+  namespace: "core_experiments_team_internal"
+  bug: "391802823"
+  description: "Fix bluetooth module java flag value inconsistency"
+  is_fixed_read_only: true
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
