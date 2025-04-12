@@ -69,12 +69,12 @@ fn main() {
     let cli = Cli::parse();
     let command_return = match cli.command {
         Command::StartSocket => {
-            if cfg!(disable_system_aconfigd_socket) {
-                info!("aconfigd_system is build-disabled, exiting");
-                Ok(())
-            } else {
+            if cfg!(enable_system_aconfigd_socket) {
                 info!("aconfigd_system is build-enabled, starting socket");
                 aconfigd_commands::start_socket()
+            } else {
+                info!("aconfigd_system is build-disabled, exiting");
+                Ok(())
             }
         }
         Command::PlatformInit => aconfigd_commands::platform_init(),
