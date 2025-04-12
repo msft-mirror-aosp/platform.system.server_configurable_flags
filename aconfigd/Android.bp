@@ -11,8 +11,8 @@ rust_binary {
         // TODO(370864013): Remove this once the CTS annotation issue is fixed.
         "libcts_flags_tests_rust",
     ],
-    cfgs: select(release_flag("RELEASE_DISABLE_SYSTEM_ACONFIGD_SOCKET"), {
-        true: ["disable_system_aconfigd_socket"],
+    cfgs: select(release_flag("RELEASE_ENABLE_SYSTEM_ACONFIGD_SOCKET"), {
+        true: ["enable_system_aconfigd_socket"],
         default: [],
     }),
     native_coverage: false,
