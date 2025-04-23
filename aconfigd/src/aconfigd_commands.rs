@@ -83,7 +83,9 @@ pub fn platform_init() -> Result<()> {
     };
 
     let mut aconfigd = Aconfigd::new(Path::new(ACONFIGD_ROOT_DIR), Path::new(storage_records));
-    aconfigd.remove_boot_files()?;
+    if !aconfig_new_storage_flags::optimize_boot_copy_creation() {
+        aconfigd.remove_boot_files()?;
+    }
     aconfigd.initialize_from_storage_record()?;
     Ok(aconfigd.initialize_platform_storage()?)
 }
