@@ -62,6 +62,11 @@ cc_library_static {
     ],
     host_supported: true,
     min_sdk_version: "33",
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 genrule {
@@ -79,7 +84,6 @@ rust_library {
     rustlibs: ["libcxx"],
     static_libs: ["libflags_rust_cpp_bridge"],
     shared_libs: [
-        "libc++",
         "server_configurable_flags",
     ],
     apex_available: [
@@ -88,4 +92,16 @@ rust_library {
     ],
     host_supported: true,
     min_sdk_version: "33",
+    target: {
+        android: {
+            shared_libs: ["libc++"],
+        },
+        not_windows: {
+            shared_libs: ["libc++"],
+        },
+        windows: {
+            enabled: true,
+            static_libs: ["libc++_static"],
+        },
+    },
 }
