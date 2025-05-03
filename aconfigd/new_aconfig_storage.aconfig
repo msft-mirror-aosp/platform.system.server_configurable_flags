@@ -52,3 +52,14 @@ flag {
     purpose: PURPOSE_BUGFIX
   }
 }
+
+flag {
+  name: "optimize_boot_copy_creation"
+  namespace: "core_experiments_team_internal"
+  bug: "409943165"
+  description: "Fix the issue that boot storage files are created unecessarily"
+  is_fixed_read_only: true
+  metadata {
+    purpose: PURPOSE_BUGFIX
+  }
+}
