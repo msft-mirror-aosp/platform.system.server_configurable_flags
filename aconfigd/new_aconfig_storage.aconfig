@@ -63,3 +63,11 @@ flag {
     purpose: PURPOSE_BUGFIX
   }
 }
+
+flag {
+    name: "enable_earlier_aconfigd"
+    namespace: "core_experiments_team_internal"
+    description: "enable earlier boot aconfigd, move aconfigd start from post-fs to early-init"
+    is_fixed_read_only: true
+    bug: "427267284"
+}
