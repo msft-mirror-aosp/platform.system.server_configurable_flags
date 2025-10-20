@@ -6,6 +6,7 @@ rust_binary {
         "libaconfig_new_storage_flags_rust",
         "libaconfigd_rust",
         "libandroid_logger",
+        "libkernlog",
         "librustutils",
         "liblibc",
         // TODO(370864013): Remove this once the CTS annotation issue is fixed.
