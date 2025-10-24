@@ -86,3 +86,14 @@ flag {
     description: "Read/write flag for perf testing."
     bug: "447177427"
 }
+
+flag {
+    name: "stop_loading_flag_default_value"
+    namespace: "core_experiments_team_internal"
+    description: "stop loading flag default value into device_config."
+    bug: "450109314"
+    metadata {
+        purpose: PURPOSE_BUGFIX
+    }
+}
+
