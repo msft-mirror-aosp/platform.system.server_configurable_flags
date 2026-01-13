@@ -84,6 +84,9 @@ pub fn platform_init() -> Result<()> {
     };
 
     let mut aconfigd = Aconfigd::new(Path::new(ACONFIGD_ROOT_DIR), Path::new(storage_records));
+    if aconfig_new_storage_flags::detect_device_build_switch() {
+        aconfigd.check_for_flag_wipe()?;
+    }
     aconfigd.initialize_from_storage_record()?;
     Ok(aconfigd.initialize_platform_storage()?)
 }

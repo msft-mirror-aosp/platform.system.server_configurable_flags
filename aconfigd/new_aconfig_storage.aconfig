@@ -67,3 +67,13 @@ flag {
     }
 }
 
+flag {
+    name: "detect_device_build_switch"
+    namespace: "core_experiments_team_internal"
+    description: "detect device build type change and clear all overrides"
+    bug: "467066835"
+    metadata {
+        purpose: PURPOSE_BUGFIX
+    }
+    is_fixed_read_only: true
+}
