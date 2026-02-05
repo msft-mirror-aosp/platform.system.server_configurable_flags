@@ -77,3 +77,11 @@ flag {
     }
     is_fixed_read_only: true
 }
+
+flag {
+    name: "enable_bootloader_sync"
+    namespace: "core_experiments_team_internal"
+    description: "aconfigd will sync certain flags to misc partition for the bootloader to read"
+    bug: "477200886"
+    is_fixed_read_only: true
+}
